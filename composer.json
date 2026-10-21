@@ -1,0 +1,99 @@
+{
+  "name": "ernestdefoe/bouncer",
+  "description": "Bot guard for Flarum 2, on your own server: turn away AI crawlers you don't want, verify real search engines by DNS, give suspicious clients a quick proof-of-work check, rate-limit bursts and keep a log for staff. No Cloudflare, no third-party captcha, nothing added for members.",
+  "keywords": [
+    "flarum",
+    "flarum-extension",
+    "bot",
+    "crawler",
+    "ai crawler",
+    "scraper",
+    "gptbot",
+    "robots.txt",
+    "proof of work",
+    "rate limit",
+    "firewall"
+  ],
+  "type": "flarum-extension",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "ernestdefoe",
+      "email": "ernestdefoe@gmail.com"
+    }
+  ],
+  "homepage": "https://github.com/ernestdefoe/bouncer",
+  "support": {
+    "issues": "https://github.com/ernestdefoe/bouncer/issues",
+    "source": "https://github.com/ernestdefoe/bouncer"
+  },
+  "funding": [
+    {
+      "type": "other",
+      "url": "https://buymeacoffee.com/ernestdefoe"
+    }
+  ],
+  "require": {
+    "php": "^8.3",
+    "flarum/core": "^2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "ErnestDefoe\\Bouncer\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "ErnestDefoe\\Bouncer\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "flarum-extension": {
+      "title": "Bouncer",
+      "category": "feature",
+      "icon": {
+        "name": "fas fa-user-shield",
+        "backgroundColor": "#1f2937",
+        "color": "#fbbf24"
+      },
+      "optional-dependencies": [
+        "flectar-turnstile"
+      ]
+    },
+    "flarum-cli": {
+      "modules": {
+        "js": true,
+        "css": true,
+        "locale": true
+      }
+    }
+  },
+  "require-dev": {
+    "flarum/phpstan": "^2.0",
+    "flarum/testing": "^2.0",
+    "laravel/pint": "^1.32"
+  },
+  "scripts": {
+    "test": [
+      "@test:unit",
+      "@test:integration"
+    ],
+    "test:unit": "phpunit -c tests/phpunit.unit.xml",
+    "test:integration": "phpunit -c tests/phpunit.integration.xml",
+    "test:setup": "@php tests/integration/setup.php",
+    "analyse:phpstan": "phpstan analyse",
+    "style": "pint --test",
+    "style:fix": "pint"
+  },
+  "scripts-descriptions": {
+    "test": "Runs all tests.",
+    "test:unit": "Runs all unit tests.",
+    "test:integration": "Runs all integration tests.",
+    "test:setup": "Sets up a database for use with integration tests. Execute this only once.",
+    "analyse:phpstan": "Run static analysis",
+    "style": "Checks the code style",
+    "style:fix": "Fixes the code style"
+  },
+  "minimum-stability": "beta",
+  "prefer-stable": true
+}

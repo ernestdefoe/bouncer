@@ -1,0 +1,126 @@
+.BouncerPage {
+  &-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 24px;
+  }
+
+  &-save {
+    margin-top: 24px;
+  }
+
+  .Form-group {
+    margin-bottom: 24px;
+  }
+
+  &-warning {
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+    background: var(--alert-error-bg);
+    color: var(--alert-error-color);
+  }
+
+  &-scroll {
+    overflow-x: auto;
+  }
+
+  &-table {
+    border-collapse: collapse;
+    min-width: 50%;
+
+    th,
+    td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--control-bg);
+      text-align: left;
+      vertical-align: top;
+    }
+  }
+
+  &-num {
+    text-align: right !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &-bots {
+    display: block;
+    width: 100%;
+    max-width: 680px;
+  }
+
+  &-bots legend {
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  &-bot {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--control-bg);
+  }
+
+  &-botName .helpText {
+    display: inline;
+  }
+
+  &-tag {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--control-bg);
+    font-size: 11px;
+  }
+
+  &-pre {
+    max-height: 320px;
+    overflow: auto;
+    padding: 10px;
+    background: var(--control-bg);
+    border-radius: 4px;
+    white-space: pre-wrap;
+  }
+
+  &-logBar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+
+    .FormControl {
+      width: auto;
+      flex: 1 1 180px;
+    }
+  }
+
+  &-when {
+    white-space: nowrap;
+  }
+
+  &-agent,
+  &-path {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &-action {
+    white-space: nowrap;
+
+    &--blocked,
+    &--limited,
+    &--failed {
+      color: var(--error-color);
+    }
+
+    &--solved,
+    &--allowed {
+      color: var(--alert-success-color);
+    }
+  }
+}
