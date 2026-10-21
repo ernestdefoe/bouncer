@@ -10,8 +10,10 @@ namespace ErnestDefoe\Bouncer;
  * Signed challenges and passes, keyed with the forum's own random secret.
  *
  * A challenge is bound to the visitor's address and user agent and lives ten
- * minutes; a pass (the cookie a solved challenge earns) is bound to the user
- * agent only, so a phone moving between networks keeps it.
+ * minutes. A pass (the cookie a solved challenge earns) is bound to the user
+ * agent and the network (/24 or /48), so one solved challenge can't be
+ * handed round a botnet; a visitor whose network changes just solves
+ * another, which takes a moment and happens by itself.
  */
 class Tokens
 {
@@ -63,21 +65,24 @@ class Tokens
         ];
     }
 
-    public function pass(string $userAgent, int $lifetime): string
+    public function pass(string $userAgent, string $network, int $lifetime): string
     {
         $expires = (string) (time() + $lifetime);
 
-        return $expires.'.'.$this->mac('p', $expires, '', $userAgent);
+        return $expires.'.'.$this->mac('p', $expires, $network, $userAgent);
     }
 
-    /** A pass is good until it expires, plus a day's grace for API calls of a page left open. */
-    public function validPass(?string $cookie, string $userAgent, int $grace = 0): bool
+    /**
+     * The pass's signature if it's good (until it expires, plus a grace
+     * period for API calls of a page left open), else null.
+     */
+    public function validPass(?string $cookie, string $userAgent, string $network, int $grace = 0): ?string
     {
         if ($cookie === null || ! preg_match('/^(\d{10,12})\.([0-9a-f]{32})$/', $cookie, $m)) {
-            return false;
+            return null;
         }
 
-        return (int) $m[1] + $grace >= time() && hash_equals($this->mac('p', $m[1], '', $userAgent), $m[2]);
+        return (int) $m[1] + $grace >= time() && hash_equals($this->mac('p', $m[1], $network, $userAgent), $m[2]) ? $m[2] : null;
     }
 
     /** Whether sha256(challenge:solution) starts with $bits zero bits. */

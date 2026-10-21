@@ -38,7 +38,8 @@ class ChallengeTest extends BouncerTestCase
         $this->assertStringContainsString('HttpOnly', implode(';', $answer->getHeader('Set-Cookie')));
 
         $this->assertSame(200, $this->get('/', [], self::IP, [$this->cookieName() => $pass])->getStatusCode());
-        $this->assertSame(200, $this->get('/api/discussions', [], '198.51.100.40', [$this->cookieName() => $pass])->getStatusCode(), 'the pass travels with the browser, not the address');
+        $this->assertSame(200, $this->get('/api/discussions', [], '203.0.113.77', [$this->cookieName() => $pass])->getStatusCode(), 'a new address on the same network keeps it');
+        $this->assertTrue($this->isChallenge($this->get('/', [], '198.51.100.40', [$this->cookieName() => $pass])), 'another network: one solved challenge cannot be handed round');
 
         $actions = array_map(fn ($r) => $r->action, $this->logRows());
         $this->assertContains('challenged', $actions);
@@ -140,7 +141,7 @@ class ChallengeTest extends BouncerTestCase
     public function a_page_left_open_keeps_loading_for_a_day_after_its_pass_expires()
     {
         $tokens = $this->app()->getContainer()->make(\ErnestDefoe\Bouncer\Tokens::class);
-        $expired = $tokens->pass(self::CHROME, -3600);
+        $expired = $tokens->pass(self::CHROME, \ErnestDefoe\Bouncer\ClientIp::network(self::IP), -3600);
         $this->set('everyone', '1');
 
         $this->assertSame(200, $this->get('/api/discussions', [], self::IP, [$this->cookieName() => $expired])->getStatusCode());

@@ -11,11 +11,11 @@ use PHPUnit\Framework\TestCase;
 
 class ClientIpTest extends TestCase
 {
-    protected function resolve(string $remote, array $headers = [], string $proxies = ''): string
+    protected function resolve(string $remote, array $headers = [], string $proxies = '', string $header = 'x-forwarded-for'): string
     {
         $tmp = sys_get_temp_dir().'/bouncer-none';
         $networks = new Networks(new Paths(['base' => $tmp, 'public' => $tmp, 'storage' => $tmp, 'vendor' => $tmp]));
-        $settings = TokensTest::settings(['ernestdefoe-bouncer.trusted_proxies' => $proxies]);
+        $settings = TokensTest::settings(['ernestdefoe-bouncer.trusted_proxies' => $proxies, 'ernestdefoe-bouncer.ip_header' => $header]);
 
         return (new ClientIp($settings, $networks))->resolve(new ServerRequest(['REMOTE_ADDR' => $remote], [], '/', 'GET', 'php://memory', $headers));
     }
@@ -37,9 +37,35 @@ class ClientIpTest extends TestCase
         $this->assertSame('198.51.100.9', $this->resolve('172.18.0.1', ['X-Forwarded-For' => '1.2.3.4, 198.51.100.9']));
         // Two proxies of our own.
         $this->assertSame('198.51.100.9', $this->resolve('127.0.0.1', ['X-Forwarded-For' => '6.6.6.6, 198.51.100.9, 10.0.0.2']));
-        $this->assertSame('198.51.100.9', $this->resolve('127.0.0.1', ['X-Real-IP' => '198.51.100.9']));
+        $this->assertSame('198.51.100.9', $this->resolve('127.0.0.1', ['X-Real-IP' => '198.51.100.9'], '', 'x-real-ip'));
         $this->assertSame('172.18.0.1', $this->resolve('172.18.0.1'), 'no headers: the proxy is all we know');
         $this->assertSame('172.18.0.1', $this->resolve('172.18.0.1', ['X-Forwarded-For' => 'garbage']));
+    }
+
+    #[Test]
+    public function only_the_chosen_header_is_read()
+    {
+        // The default: no proxy header at all.
+        $this->assertSame('172.18.0.1', $this->resolve('172.18.0.1', ['X-Forwarded-For' => '198.51.100.9', 'X-Real-IP' => '198.51.100.9'], '', 'none'));
+
+        // A proxy that sets X-Real-IP and passes the visitor's X-Forwarded-For along:
+        // the forged X-Forwarded-For must not win.
+        $this->assertSame('198.51.100.9', $this->resolve('172.18.0.1', ['X-Real-IP' => '198.51.100.9', 'X-Forwarded-For' => '66.249.66.1'], '', 'x-real-ip'));
+
+        // And the other way round: no falling back to X-Real-IP when X-Forwarded-For is chosen.
+        $this->assertSame('172.18.0.1', $this->resolve('172.18.0.1', ['X-Real-IP' => '66.249.66.1'], '', 'x-forwarded-for'));
+    }
+
+    #[Test]
+    public function ipv6_visitors_are_grouped_by_their_64_and_passes_by_network()
+    {
+        $this->assertSame(ClientIp::bucket('2001:db8:1:2::1'), ClientIp::bucket('2001:db8:1:2:ffff::9'));
+        $this->assertNotSame(ClientIp::bucket('2001:db8:1:2::1'), ClientIp::bucket('2001:db8:1:3::1'));
+        $this->assertSame('203.0.113.5', ClientIp::bucket('203.0.113.5'));
+
+        $this->assertSame(ClientIp::network('203.0.113.5'), ClientIp::network('203.0.113.250'));
+        $this->assertNotSame(ClientIp::network('203.0.113.5'), ClientIp::network('203.0.114.5'));
+        $this->assertSame(ClientIp::network('2001:db8:1::1'), ClientIp::network('2001:db8:1:ffff::1'));
     }
 
     #[Test]

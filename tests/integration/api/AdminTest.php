@@ -39,6 +39,12 @@ class AdminTest extends BouncerTestCase
         $search = json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '198.51.100'])->getBody(), true);
         $this->assertSame(1, $search['total']);
 
+        // Case doesn't matter, and _ and % are literal, on every database.
+        $this->get('/', ['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) HeadlessChrome/120'], '198.51.100.51');
+        $this->assertSame(1, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '10_15'])->getBody(), true)['total']);
+        $this->assertSame(0, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '10%15'])->getBody(), true)['total']);
+        $this->assertSame(1, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => 'gptbot'])->getBody(), true)['total']);
+
         $junk = json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['action' => "x' OR 1=1 --", 'q' => '%_%'])->getBody(), true);
         $this->assertSame(0, $junk['total']);
 

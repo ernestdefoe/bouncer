@@ -11,7 +11,7 @@ use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Cache\Repository as Cache;
 
 /**
- * Requests per address per minute.
+ * Requests per key (an address, an IPv6 /64, or a pass) per minute.
  *
  * In APCu when PHP has it (shared memory: atomic, no I/O, expires by
  * itself), otherwise in Flarum's cache: an atomic increment on Redis or
@@ -30,7 +30,7 @@ class Counter
         $this->apcu = function_exists('apcu_enabled') && apcu_enabled();
     }
 
-    /** Count this request; returns the address's count in the current minute. */
+    /** Count this request for a key (an address, a /64, a pass); returns its count this minute. */
     public function hit(string $ip): int
     {
         $window = intdiv(time(), self::WINDOW);

@@ -136,15 +136,17 @@ class Agents
             }
         }
 
-        foreach (self::FRIENDLY as $token) {
-            if (str_contains($ua, $token)) {
-                return ['type' => 'friendly', 'key' => $token, 'name' => $token];
-            }
-        }
-
+        // Libraries before friendly names: "facebookexternalhit python-requests"
+        // is a script borrowing a name.
         foreach (self::TOOLS as $token) {
             if (str_contains($ua, $token)) {
                 return ['type' => 'tool', 'key' => $token, 'name' => rtrim($token, '/')];
+            }
+        }
+
+        foreach (self::FRIENDLY as $token) {
+            if (str_contains($ua, $token)) {
+                return ['type' => 'friendly', 'key' => $token, 'name' => $token];
             }
         }
 

@@ -33,7 +33,8 @@ third-party captcha, and members get no extra JavaScript or database work.
   self-contained page (no forum assets) whose browser works out a SHA-256
   proof of work. That takes a tenth of a second on a laptop and well under a
   second on an older phone. It then returns to the page they asked for, with
-  a signed cookie so they aren't asked again for a week. Scripts that can't
+  a signed cookie for that browser and network, so they aren't asked again
+  for a week. Scripts that can't
   run JavaScript never get past it. If you already use a Turnstile extension
   ([flectar/flarum-turnstile](https://github.com/flectar/flarum-ext-turnstile)),
   you can show Turnstile instead, with the same keys.
@@ -52,11 +53,13 @@ third-party captcha, and members get no extra JavaScript or database work.
   - everyone, when you switch on "under attack".
   Each signal can be switched off, and some can block instead.
 - **Your server, your addresses.** Behind nginx, a container or a load
-  balancer, Bouncer finds the visitor's real address in `X-Forwarded-For`,
-  trusting only private addresses and the proxies you list. It believes
+  balancer, tell Bouncer which header your proxy sets (`X-Forwarded-For` or
+  `X-Real-IP`). The overview shows what your own request carried, so you
+  can pick the right one. That header is read only for requests from your
+  proxy (a private address, or one you list). Bouncer believes
   `CF-Connecting-IP` only when the request really came through Cloudflare's
-  published ranges. If every visitor looks like the proxy, the admin page
-  says so, and per-address checks stand down instead of challenging
+  published ranges. Until it can see visitors' addresses, the admin page
+  says so, and the per-address checks stand down instead of challenging
   everyone.
 - **A log for staff.** Allowed bots, challenges, solved and failed answers,
   blocks and rate limits, with the address, user agent, path, reason and hit
@@ -106,10 +109,15 @@ extension, so it works from the first request. You can refresh by hand with
 - **robots.txt and ai.txt** have to reach Flarum. Many nginx setups answer
   `/robots.txt` from disk (`location = /robots.txt { … }`). Use **Check what
   crawlers see** on the Crawlers tab.
-- **Reverse proxy:** have it append the visitor's address to
-  `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For
-  $proxy_add_x_forwarded_for;`). Don't pass a client's own header through
-  unchanged.
+- **Reverse proxy:** choose the header on the Overview tab. Use the one your
+  proxy sets itself. With nginx that's `X-Forwarded-For` with
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, or
+  `X-Real-IP` with `proxy_set_header X-Real-IP $remote_addr;`. A header the
+  proxy only passes along can be forged by anyone.
+- **Allowed bots, link previews and monitors** are let in by name, so they
+  can't use more than the burst limit (60 requests a minute per address).
+  Real crawlers never need more. Real search engines are verified, so the
+  limit never applies to them.
 - **Your own JSON endpoints** that other servers fetch as guests with an HTTP
   library (licence or update feeds, for example): add their paths under
   **Never check these paths**.

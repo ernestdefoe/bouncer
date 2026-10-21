@@ -96,6 +96,11 @@ class StatusController implements RequestHandlerInterface
                 'ip' => $ip,
                 'remote' => (string) ($request->getServerParams()['REMOTE_ADDR'] ?? ''),
                 'public' => ClientIp::isPublic($ip),
+                // What this request carried, so the admin can see which header their proxy sets.
+                'headers' => array_filter([
+                    'x-forwarded-for' => mb_substr($request->getHeaderLine('X-Forwarded-For'), 0, 200),
+                    'x-real-ip' => mb_substr($request->getHeaderLine('X-Real-IP'), 0, 60),
+                ]),
             ],
             'networks' => $this->networks->info() + ['configured' => $this->updater->asns()],
             'defaultAsns' => Updater::DEFAULT_ASNS,

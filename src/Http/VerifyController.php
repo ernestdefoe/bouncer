@@ -81,7 +81,8 @@ class VerifyController implements RequestHandlerInterface
         if ($data !== null && $this->solved($data, $body, $ip) && $this->cache->add('ernestdefoe-bouncer.used.'.$data['nonce'], 1, Tokens::CHALLENGE_TTL + 60)) {
             $this->log->record($ip, $ua, $data['return'], 'solved', $data['difficulty'] === 0 ? 'turnstile' : 'pow');
 
-            $cookie = $this->cookies->make(Guard::COOKIE, $this->tokens->pass($ua, $this->settings->passLifetime()), $this->settings->passLifetime());
+            $pass = $this->tokens->pass($ua, ClientIp::network($ip), $this->settings->passLifetime());
+            $cookie = $this->cookies->make(Guard::COOKIE, $pass, $this->settings->passLifetime());
 
             return (new RedirectResponse($this->back($data['return']), 303))
                 ->withAddedHeader('Set-Cookie', $cookie->__toString())

@@ -19,9 +19,10 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  *  2. search engines, verified by DNS: real ones always pass, fakes are
  *     turned away; never rate limited, never challenged;
  *  3. listed bots the admin blocks;
- *  4. the per-address rate count, and the hard limit;
- *  5. listed bots the admin allows, link previews, monitors, feed readers;
- *  6. a valid pass (a challenge solved earlier);
+ *  4. the rate count (per pass, or per address) and the hard limit;
+ *  5. listed bots the admin allows, link previews, monitors, feed readers:
+ *     let in below the burst threshold;
+ *  6. a valid pass (a challenge solved earlier, on this network);
  *  7. the signals that earn a challenge: everyone (under attack), no user
  *     agent, HTTP libraries and headless browsers, missing browser headers,
  *     data-centre networks, bursts.
@@ -80,9 +81,9 @@ class Inspector
                 return new Verdict($action, 'fake_engine', $agent['name'], true);
             }
 
-            // DNS couldn't say (lookup budget spent, or no public address to
-            // look up): it may be the real thing, so only the rate limits
-            // apply below.
+            // DNS couldn't vouch for it (lookup budget spent): it may be real,
+            // so no header check (crawlers don't send browser headers), but
+            // the data-centre and burst checks below still apply.
             $unverified = $check === Crawler::UNKNOWN;
         }
 
@@ -90,32 +91,34 @@ class Inspector
             return new Verdict(Verdict::BLOCK, 'bot', $agent['name'], true);
         }
 
+        // A day's grace on the API: a page left open past its pass still loads more.
+        $passId = $this->tokens->validPass($pass, $ua, ClientIp::network($ip), $api ? 86400 : 0);
+
+        // Counted per pass when there is one (so guests sharing an office or
+        // school address each get their own allowance), else per address
+        // (per /64 for IPv6).
         $count = 0;
 
         if ($public && ($settings->burstBlock() > 0 || $settings->burstChallenge() > 0)) {
-            $count = $this->counter->hit($ip);
+            $count = $this->counter->hit($passId !== null ? 'pass.'.$passId : ClientIp::bucket($ip));
 
             if ($settings->burstBlock() > 0 && $count > $settings->burstBlock()) {
                 return new Verdict(Verdict::LIMIT, 'burst', $agent['name'] ?: null, true);
             }
         }
 
-        if ($agent['type'] === 'bot') {
-            return Verdict::pass('bot', $agent['name'], true);
+        $burst = $settings->burstChallenge() > 0 && $count > $settings->burstChallenge();
+
+        // Allowed bots, link previews, monitors and feed readers can't solve
+        // a challenge, and their user agents prove nothing: let in, but only
+        // at a pace no real one needs, so borrowing the name buys little.
+        if ($agent['type'] === 'bot' || $agent['type'] === 'friendly') {
+            return $burst
+                ? new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'], true)
+                : Verdict::pass($agent['type'], $agent['name'], $agent['type'] === 'bot');
         }
 
-        if ($agent['type'] === 'friendly' || $unverified) {
-            // A link preview or a monitor never fetches pages in bursts;
-            // something borrowing its name might.
-            if ($agent['type'] === 'friendly' && $settings->burstChallenge() > 0 && $count > $settings->burstChallenge()) {
-                return new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'], true);
-            }
-
-            return Verdict::pass($unverified ? 'engine_unverified' : 'friendly');
-        }
-
-        // A day's grace on the API: a page left open past its pass still loads more.
-        if ($this->tokens->validPass($pass, $ua, $api ? 86400 : 0)) {
+        if ($passId !== null) {
             return Verdict::pass('pass');
         }
 
@@ -135,11 +138,11 @@ class Inspector
             return new Verdict($action, 'datacentre', null, true);
         }
 
-        if ($settings->burstChallenge() > 0 && $count > $settings->burstChallenge()) {
-            return new Verdict(Verdict::CHALLENGE, 'burst', null, true);
+        if ($burst) {
+            return new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'] ?: null, true);
         }
 
-        return Verdict::pass('none');
+        return Verdict::pass($unverified ? 'engine_unverified' : 'none');
     }
 
     /**

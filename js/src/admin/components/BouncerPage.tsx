@@ -22,7 +22,7 @@ interface Bot {
 }
 
 interface Status {
-  you: { ip: string; remote: string; public: boolean };
+  you: { ip: string; remote: string; public: boolean; headers: Record<string, string> };
   networks: { updated: number; asns: number[]; source: string; ranges: number; configured: number[] };
   defaultAsns: Record<string, string>;
   days: { date: string; counts: Record<string, number> }[];
@@ -166,6 +166,28 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
               {t(s.you.public ? 'overview.you_public' : 'overview.you_private', { ip: s.you.ip })}
             </p>
           </div>,
+          this.buildSettingComponent({
+            setting: P + 'ip_header',
+            type: 'select',
+            label: t('overview.ip_header_label'),
+            help: t('overview.ip_header_help'),
+            options: { none: t('overview.ip_header_none'), 'x-forwarded-for': 'X-Forwarded-For', 'x-real-ip': 'X-Real-IP' },
+            default: 'none',
+          }),
+          <p className="helpText">
+            {Object.keys(s.you.headers).length
+              ? [
+                  t('overview.headers_seen'),
+                  ...Object.entries(s.you.headers).map(([name, value]) => (
+                    <div>
+                      <code>
+                        {name}: {value}
+                      </code>
+                    </div>
+                  )),
+                ]
+              : t('overview.headers_none')}
+          </p>,
           <div className="Form-group">
             <label>{t('overview.networks_heading')}</label>
             <p className="helpText">

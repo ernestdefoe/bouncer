@@ -82,22 +82,23 @@ class TokensTest extends TestCase
     }
 
     #[Test]
-    public function passes_expire_and_are_bound_to_the_user_agent()
+    public function passes_expire_and_are_bound_to_the_user_agent_and_network()
     {
         $tokens = $this->tokens();
-        $pass = $tokens->pass('UA', 3600);
+        $pass = $tokens->pass('UA', 'cb0071', 3600);
 
-        $this->assertTrue($tokens->validPass($pass, 'UA'));
-        $this->assertFalse($tokens->validPass($pass, 'Other UA'));
-        $this->assertFalse($tokens->validPass($pass.'0', 'UA'));
-        $this->assertFalse($tokens->validPass(null, 'UA'));
+        $this->assertNotNull($tokens->validPass($pass, 'UA', 'cb0071'));
+        $this->assertNull($tokens->validPass($pass, 'Other UA', 'cb0071'));
+        $this->assertNull($tokens->validPass($pass, 'UA', 'c63364'), 'another network');
+        $this->assertNull($tokens->validPass($pass.'0', 'UA', 'cb0071'));
+        $this->assertNull($tokens->validPass(null, 'UA', 'cb0071'));
 
         [$expires, $mac] = explode('.', $pass);
-        $this->assertFalse($tokens->validPass(($expires + 86400).'.'.$mac, 'UA'), 'extending the expiry breaks the signature');
+        $this->assertNull($tokens->validPass(($expires + 86400).'.'.$mac, 'UA', 'cb0071'), 'extending the expiry breaks the signature');
 
-        $expired = $tokens->pass('UA', -10);
-        $this->assertFalse($tokens->validPass($expired, 'UA'));
-        $this->assertTrue($tokens->validPass($expired, 'UA', 86400), 'within the grace period');
+        $expired = $tokens->pass('UA', 'cb0071', -10);
+        $this->assertNull($tokens->validPass($expired, 'UA', 'cb0071'));
+        $this->assertNotNull($tokens->validPass($expired, 'UA', 'cb0071', 86400), 'within the grace period');
     }
 
     #[Test]

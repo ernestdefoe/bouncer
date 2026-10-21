@@ -40,8 +40,15 @@ class ListLogController implements RequestHandlerInterface
         }
 
         if (is_string($params['q'] ?? null) && ($q = trim($params['q'])) !== '') {
-            $like = '%'.addcslashes(mb_substr($q, 0, 100), '%_\\').'%';
-            $query->where(fn ($w) => $w->where('ip', 'like', $like)->orWhere('user_agent', 'like', $like)->orWhere('bot', 'like', $like));
+            // Case-insensitive on every database, with % and _ taken
+            // literally: "!" is the escape character, as it means nothing
+            // special in any of their string literals.
+            $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower(mb_substr($q, 0, 100))).'%';
+            $query->where(function ($w) use ($like) {
+                foreach (['ip', 'user_agent', 'bot'] as $column) {
+                    $w->orWhereRaw('lower('.$w->getGrammar()->wrap($column).") like ? escape '!'", [$like]);
+                }
+            });
         }
 
         $total = (clone $query)->count();

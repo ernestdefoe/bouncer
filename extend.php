@@ -62,6 +62,7 @@ return [
 
     (new Extend\Settings())
         ->default($prefix.'mode', 'on')
+        ->default($prefix.'ip_header', 'none')
         ->default($prefix.'api', true)
         ->default($prefix.'everyone', false)
         ->default($prefix.'fake_engines', 'block')

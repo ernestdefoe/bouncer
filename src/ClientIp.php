@@ -13,13 +13,14 @@ use Psr\Http\Message\ServerRequestInterface;
  * The visitor's real address.
  *
  * Flarum takes REMOTE_ADDR as it is, which behind a reverse proxy (nginx in
- * front of a container, a load balancer) is the proxy for every visitor. So:
- * when the connection comes from a trusted proxy (a private or loopback
- * address, or one the admin lists), X-Forwarded-For is walked from the
- * right, skipping trusted hops, to the first address that isn't one; a
- * visitor can prepend whatever they like, but can't forge what the proxy
- * appended. CF-Connecting-IP is believed only when the hop that sent it is
- * in Cloudflare's published ranges.
+ * front of a container, a load balancer) is the proxy for every visitor. So
+ * the admin says which header their proxy sets, and only when the
+ * connection comes from a trusted proxy (a private or loopback address, or
+ * one the admin lists) is it read: X-Real-IP as it is, or X-Forwarded-For
+ * walked from the right, skipping trusted hops, to the first address that
+ * isn't one (a visitor can prepend whatever they like, but can't forge what
+ * the proxy appended). CF-Connecting-IP is believed only when the hop that
+ * sent it is in Cloudflare's published ranges.
  */
 class ClientIp
 {
@@ -33,13 +34,15 @@ class ClientIp
     {
         $server = $request->getServerParams();
         $ip = self::valid((string) ($server['REMOTE_ADDR'] ?? '')) ?? (string) $request->getAttribute('ipAddress', '');
+        $header = $this->settings->ipHeader();
 
-        if ($ip !== '' && $this->trusted($ip)) {
-            $hops = array_map('trim', explode(',', $request->getHeaderLine('X-Forwarded-For')));
-
-            if ($request->getHeaderLine('X-Forwarded-For') === '') {
-                $hops = [$request->getHeaderLine('X-Real-IP')];
-            }
+        if ($ip !== '' && $header !== null && $this->trusted($ip)) {
+            // Only the header the admin chose: falling back from one to the
+            // other would let a visitor supply whichever one the proxy
+            // doesn't overwrite.
+            $hops = $header === 'x-real-ip'
+                ? [$request->getHeaderLine('X-Real-IP')]
+                : array_map('trim', explode(',', $request->getHeaderLine('X-Forwarded-For')));
 
             foreach (array_reverse($hops) as $hop) {
                 $hop = self::valid($hop);
@@ -61,6 +64,32 @@ class ClientIp
         }
 
         return $ip;
+    }
+
+    /**
+     * What one visitor's addresses have in common: the address itself for
+     * IPv4, its /64 for IPv6 (one subscriber's whole network, which a client
+     * can rotate through freely).
+     */
+    public static function bucket(string $ip): string
+    {
+        if (! str_contains($ip, ':')) {
+            return $ip;
+        }
+
+        return bin2hex(substr((string) @inet_pton($ip), 0, 8)).'/64';
+    }
+
+    /** The network a pass is bound to: the /24 for IPv4, the /48 for IPv6. */
+    public static function network(string $ip): string
+    {
+        $packed = @inet_pton($ip);
+
+        if ($packed === false) {
+            return '';
+        }
+
+        return bin2hex(strlen($packed) === 4 ? substr($packed, 0, 3) : substr($packed, 0, 6));
     }
 
     /** A public address: one the rate limits, networks and DNS checks mean something for. */

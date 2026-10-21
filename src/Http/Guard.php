@@ -23,7 +23,7 @@ use Psr\Http\Server\RequestHandlerInterface as Handler;
 
 /**
  * On the forum and API stacks, after authentication, before anything is
- * rendered: signed-in members, API tokens, internal calls and anything but
+ * rendered: signed-in members, API keys, internal calls and anything but
  * GET/HEAD go straight through untouched. Guests are inspected, and the
  * forum's pages and API either load, or a challenge, a refusal or a "slow
  * down" is answered instead, with no forum frontend built at all.
@@ -52,7 +52,10 @@ class Guard implements MiddlewareInterface
 
         $path = self::path($request);
 
-        if (! RequestUtil::getActor($request)->isGuest() || ($this->api && ! $this->settings->guardApi()) || $this->exempt($path)) {
+        // Members, and API keys (one with no user still authenticates as a
+        // guest), are never checked.
+        if (! RequestUtil::getActor($request)->isGuest() || $request->getAttribute('apiKey') !== null
+            || ($this->api && ! $this->settings->guardApi()) || $this->exempt($path)) {
             return $handler->handle($request);
         }
 

@@ -131,7 +131,7 @@ abstract class BouncerTestCase extends TestCase
     protected function dns(string $host, array $forward): void
     {
         $this->app()->getContainer()->make(Crawler::class)->resolveWith(
-            fn (string $ip) => $host,
+            fn (string $ip): string => $host,
             fn (string $name) => $name === $host ? $forward : [],
         );
     }

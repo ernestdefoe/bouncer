@@ -22,6 +22,7 @@ class AgentsTest extends TestCase
             'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)' => ['friendly', 'discordbot'],
             'Mozilla/5.0+(compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)' => ['friendly', 'uptimerobot'],
             'curl/8.4.0' => ['tool', 'curl'],
+            'facebookexternalhit/1.1 python-requests/2.31' => ['tool', 'python-requests'],
             'python-requests/2.31.0' => ['tool', 'python-requests'],
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36' => ['tool', 'headlesschrome'],
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36' => ['browser', ''],

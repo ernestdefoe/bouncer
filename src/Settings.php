@@ -17,7 +17,7 @@ class Settings
 {
     public const PREFIX = 'ernestdefoe-bouncer.';
 
-    public const DEFAULT_EXEMPT = "/robots.txt\n/ai.txt\n/sitemap\n/.well-known/\n/atom\n/rss\n/feed\n/favicon";
+    public const DEFAULT_EXEMPT = "/robots.txt\n/ai.txt\n/sitemap\n/.well-known/\n/atom\n/rss\n/feed\n/favicon\n/webmanifest\n/sw\n/offline";
 
     /** @var array<string, array{0: string, 1: mixed}> */
     protected array $memo = [];
@@ -53,6 +53,14 @@ class Settings
     public function monitorOnly(): bool
     {
         return $this->get('mode') === 'monitor';
+    }
+
+    /** The header the reverse proxy puts the visitor's address in, if any. */
+    public function ipHeader(): ?string
+    {
+        $value = (string) $this->get('ip_header', 'none');
+
+        return in_array($value, ['x-forwarded-for', 'x-real-ip'], true) ? $value : null;
     }
 
     public function challengeEveryone(): bool

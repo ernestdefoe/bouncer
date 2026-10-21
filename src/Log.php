@@ -33,7 +33,8 @@ class Log
 
     public function record(string $ip, string $userAgent, string $path, string $action, string $reason, ?string $bot = null): void
     {
-        $key = 'ernestdefoe-bouncer.log.'.md5($ip."\n".$action."\n".$reason);
+        // One row per IPv6 /64, which a client can rotate through freely.
+        $key = 'ernestdefoe-bouncer.log.'.md5(ClientIp::bucket($ip)."\n".$action."\n".$reason);
         $entry = $this->cache->get($key);
         $now = time();
 

@@ -26,7 +26,12 @@ ernestdefoe-bouncer:
       bots_heading: Busiest bots this week
       you_heading: Your address as Bouncer sees it
       you_public: "{ip}. Visitors' addresses are coming through, so rate limits and network checks work."
-      you_private: "{ip} is a private address: your reverse proxy isn't passing visitors' addresses on, or isn't trusted. Until it is, rate limits, data-centre checks and search engine verification are skipped. Have the proxy send X-Forwarded-For (or X-Real-IP), and add its address under Lists → Trusted proxies if it isn't a private one."
+      you_private: "{ip} is a private address, so Flarum sits behind a reverse proxy and Bouncer can't see visitors' addresses yet. Until it can, rate limits, data-centre checks and search engine verification are skipped. Choose the header your proxy sets below."
+      ip_header_label: Where your reverse proxy puts the visitor's address
+      ip_header_help: "Read only when a request comes from your own proxy (a private address, or one listed under Lists → Trusted proxies). Choose the header your proxy sets itself: with nginx, X-Forwarded-For if it uses $proxy_add_x_forwarded_for, X-Real-IP if it sets X-Real-IP to $remote_addr. A header your proxy only passes along can be forged by anyone."
+      ip_header_none: None (Flarum faces the internet directly)
+      headers_seen: "Your request to this page carried:"
+      headers_none: "Your request to this page carried neither header."
       networks_heading: Data-centre networks
       networks_info: "{ranges} address ranges from {asns} networks, updated {date} ({source})."
       networks_source_bundled: the list shipped with Bouncer
