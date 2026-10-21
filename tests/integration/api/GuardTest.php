@@ -34,12 +34,13 @@ class GuardTest extends BouncerTestCase
     #[Test]
     public function api_keys_and_tokens_are_never_checked()
     {
-        $this->database()->table('api_keys')->insert(['key' => 'bouncer-test-key-0123456789abcdef', 'user_id' => 1, 'created_at' => \Carbon\Carbon::now()]);
+        $key = str_repeat('k', 40);
+        $this->database()->table('api_keys')->insert(['key' => $key, 'user_id' => 1, 'created_at' => \Carbon\Carbon::now()]);
 
         $response = $this->send($this->from('GET', '/api/discussions', [
             'User-Agent' => 'curl/8.4.0',
             'Accept-Language' => null,
-            'Authorization' => 'Token bouncer-test-key-0123456789abcdef; userId=1',
+            'Authorization' => "Token $key; userId=1",
         ], '3.5.140.2'));
 
         $this->assertSame(200, $response->getStatusCode());
