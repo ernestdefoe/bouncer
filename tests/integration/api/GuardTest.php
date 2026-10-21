@@ -202,6 +202,7 @@ class GuardTest extends BouncerTestCase
         $ua = ['User-Agent' => 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)', 'Accept-Language' => null];
 
         $this->assertSame(200, $this->get('/', $ua, '3.5.140.2')->getStatusCode(), 'even from a data centre');
+        $this->assertSame(200, $this->get('/', ['User-Agent' => 'LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)', 'Accept-Language' => null], '3.5.140.3')->getStatusCode(), 'a preview built on a Java client');
         $this->assertSame(200, $this->get('/', $ua, '3.5.140.2')->getStatusCode());
         $this->assertTrue($this->isChallenge($this->get('/', $ua, '3.5.140.2')));
     }

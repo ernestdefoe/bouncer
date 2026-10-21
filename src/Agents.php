@@ -110,6 +110,12 @@ class Agents
         'puppeteer', 'playwright', 'selenium', 'webdriver', 'htmlunit', 'electron/',
     ];
 
+    /** Clients a link preview, monitor or feed reader may say it's built on. */
+    public const BUILT_ON = [
+        'apache-httpclient', 'java/', 'okhttp', 'ruby', 'guzzlehttp', 'faraday', 'typhoeus',
+        'libwww-perl', 'lwp::', 'dart:io', 'reqwest', 'hackney', 'restsharp', 'winhttp', 'libcurl',
+    ];
+
     /**
      * @return array{type: string, key: string, name: string, suffixes?: list<string>}
      *     type: engine | bot | friendly | tool | empty | browser
@@ -136,18 +142,30 @@ class Agents
             }
         }
 
-        // Libraries before friendly names: "facebookexternalhit python-requests"
-        // is a script borrowing a name.
+        $tool = null;
+
         foreach (self::TOOLS as $token) {
             if (str_contains($ua, $token)) {
-                return ['type' => 'tool', 'key' => $token, 'name' => rtrim($token, '/')];
+                $tool = ['type' => 'tool', 'key' => $token, 'name' => rtrim($token, '/')];
+
+                break;
             }
         }
 
         foreach (self::FRIENDLY as $token) {
             if (str_contains($ua, $token)) {
-                return ['type' => 'friendly', 'key' => $token, 'name' => $token];
+                // Real fetchers name the client they're built on (LinkedIn's
+                // says Apache-HttpClient), but none is a scripting library or
+                // a headless browser: "facebookexternalhit python-requests"
+                // is a script borrowing a name.
+                return $tool !== null && ! in_array($tool['key'], self::BUILT_ON, true)
+                    ? $tool
+                    : ['type' => 'friendly', 'key' => $token, 'name' => $token];
             }
+        }
+
+        if ($tool !== null) {
+            return $tool;
         }
 
         return ['type' => 'browser', 'key' => '', 'name' => ''];
