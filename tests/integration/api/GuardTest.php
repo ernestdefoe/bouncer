@@ -211,21 +211,45 @@ class GuardTest extends BouncerTestCase
     {
         $this->withinOneMinute();
         $this->set('burst_challenge', 3);
-        $this->set('burst_block', 5);
+        $this->set('burst_block', 6);
 
-        for ($i = 1; $i <= 3; $i++) {
-            $this->assertSame(200, $this->get('/api/discussions')->getStatusCode(), "request $i");
+        for ($i = 1; $i <= 4; $i++) {
+            $this->assertSame(200, $this->get('/api/discussions')->getStatusCode(), "request $i: the API only ever meets the hard limit");
         }
 
-        $this->assertSame(403, $this->get('/api/discussions')->getStatusCode());
+        $this->assertTrue($this->isChallenge($this->get('/')), 'a page past the soft limit');
         $this->assertTrue($this->isChallenge($this->get('/')));
 
         $response = $this->get('/');
         $this->assertSame(429, $response->getStatusCode());
         $this->assertSame('60', $response->getHeaderLine('Retry-After'));
+        $this->assertSame(429, $this->get('/api/discussions')->getStatusCode());
 
         // Another address is unaffected.
         $this->assertSame(200, $this->get('/', [], '198.51.100.30')->getStatusCode());
+    }
+
+    #[Test]
+    public function passes_never_lift_an_address_past_three_times_the_limit()
+    {
+        $this->withinOneMinute();
+        $this->set('burst_block', 2);
+        $tokens = $this->app()->getContainer()->make(\ErnestDefoe\Bouncer\Tokens::class);
+        $net = \ErnestDefoe\Bouncer\ClientIp::network(self::IP);
+        $statuses = [];
+
+        // Four passes from one address, two requests each: the address
+        // reaches 6 (3 × 2) and is refused from then on.
+        for ($n = 0; $n < 4; $n++) {
+            $ua = self::CHROME." build/$n";
+            $cookie = [$this->cookieName() => $tokens->pass($ua, $net, 3600)];
+
+            for ($i = 0; $i < 2; $i++) {
+                $statuses[] = $this->get('/', ['User-Agent' => $ua], self::IP, $cookie)->getStatusCode();
+            }
+        }
+
+        $this->assertSame([200, 200, 200, 200, 200, 200, 429, 429], $statuses);
     }
 
     #[Test]
@@ -257,6 +281,11 @@ class GuardTest extends BouncerTestCase
 
         // A private address that isn't loopback (a proxy that hides visitors) is still checked.
         $this->assertTrue($this->isChallenge($this->get('/', ['User-Agent' => 'curl/8'], '172.18.0.1')));
+
+        // Loopback with a proxy header is a local proxy (Cloudflare Tunnel, nginx in front
+        // of Apache) relaying someone else: checked like anyone.
+        $this->set('ip_header', 'none');
+        $this->assertSame(403, $this->get('/', ['User-Agent' => self::GPTBOT, 'X-Forwarded-For' => '20.171.207.1'], '127.0.0.1')->getStatusCode());
     }
 
     #[Test]

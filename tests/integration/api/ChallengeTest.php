@@ -106,7 +106,7 @@ class ChallengeTest extends BouncerTestCase
         $tokens = $this->app()->getContainer()->make(\ErnestDefoe\Bouncer\Tokens::class);
 
         foreach (['//evil.example/x', '/\\evil.example/x', "/\t/evil.example", 'https://evil.example/'] as $path) {
-            $token = $tokens->challenge(self::IP, self::CHROME, $path, 8);
+            $token = $tokens->challenge(\ErnestDefoe\Bouncer\ClientIp::network(self::IP), self::CHROME, $path, 8);
             $location = $this->verify($token, null)->getHeaderLine('Location');
             $this->assertSame('localhost', parse_url($location, PHP_URL_HOST), $path);
             $this->assertStringStartsWith('http://localhost/', $location, $path);

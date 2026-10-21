@@ -6,6 +6,7 @@
 
 namespace ErnestDefoe\Bouncer\Http;
 
+use ErnestDefoe\Bouncer\ClientIp;
 use ErnestDefoe\Bouncer\Settings;
 use ErnestDefoe\Bouncer\Tokens;
 use Flarum\Http\UrlGenerator;
@@ -50,7 +51,7 @@ class Challenge
             'footer' => $t('footer'),
             'failed' => $failed,
             'action' => $this->url->to('forum')->route('ernestdefoe-bouncer.verify'),
-            'token' => $this->tokens->challenge($ip, $request->getHeaderLine('User-Agent'), $return, $turnstile ? 0 : $this->settings->difficulty()),
+            'token' => $this->tokens->challenge(ClientIp::network($ip), $request->getHeaderLine('User-Agent'), $return, $turnstile ? 0 : $this->settings->difficulty()),
             'difficulty' => $this->settings->difficulty(),
             'turnstile' => $turnstile['site'] ?? null,
         ])->render();

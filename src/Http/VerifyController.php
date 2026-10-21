@@ -67,11 +67,11 @@ class VerifyController implements RequestHandlerInterface
         $token = is_string($body['c'] ?? null) ? $body['c'] : '';
         $ip = $this->clientIp->resolve($request);
         $ua = $request->getHeaderLine('User-Agent');
-        $data = $this->tokens->readChallenge($token, $ip, $ua);
+        $data = $this->tokens->readChallenge($token, ClientIp::network($ip), $ua);
 
         // Twenty tries a minute per address: answers are cheap to check, but
         // a Turnstile answer costs a call to Cloudflare.
-        $tries = 'ernestdefoe-bouncer.verify.'.intdiv(time(), 60).'.'.md5($ip);
+        $tries = 'ernestdefoe-bouncer.verify.'.intdiv(time(), 60).'.'.md5(ClientIp::bucket($ip));
         $this->cache->add($tries, 0, 120);
 
         if ((int) $this->cache->increment($tries) > self::TRIES_PER_MINUTE) {

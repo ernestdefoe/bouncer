@@ -174,7 +174,7 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
             options: { none: t('overview.ip_header_none'), 'x-forwarded-for': 'X-Forwarded-For', 'x-real-ip': 'X-Real-IP' },
             default: 'none',
           }),
-          <p className="helpText">
+          <p className="helpText Form-group">
             {Object.keys(s.you.headers).length
               ? [
                   t('overview.headers_seen'),

@@ -46,8 +46,9 @@ class Inspector
         $lower = strtolower($ua);
         $public = ClientIp::isPublic($ip);
 
-        // The server talking to itself: health checks, cache warmers, cron.
-        if (ClientIp::isLoopback($ip) || $settings->allowedIps()->contains($ip)) {
+        // The server talking to itself (health checks, cache warmers, cron):
+        // loopback, with no proxy header saying it was relayed for someone.
+        if ((ClientIp::isLoopback($ip) && ! ClientIp::relayed($request)) || $settings->allowedIps()->contains($ip)) {
             return Verdict::pass('allowed_ip');
         }
 
@@ -94,15 +95,22 @@ class Inspector
         // A day's grace on the API: a page left open past its pass still loads more.
         $passId = $this->tokens->validPass($pass, $ua, ClientIp::network($ip), $api ? 86400 : 0);
 
-        // Counted per pass when there is one (so guests sharing an office or
-        // school address each get their own allowance), else per address
-        // (per /64 for IPv6).
+        // Counted per address (per /64 for IPv6) and, for a pass holder, per
+        // pass too: guests sharing an office or school address each get the
+        // limit to themselves, but no address gets more than three times it,
+        // however many passes it collects.
         $count = 0;
+        $block = $settings->burstBlock();
 
-        if ($public && ($settings->burstBlock() > 0 || $settings->burstChallenge() > 0)) {
-            $count = $this->counter->hit($passId !== null ? 'pass.'.$passId : ClientIp::bucket($ip));
+        if ($public && ($block > 0 || $settings->burstChallenge() > 0)) {
+            $count = $this->counter->hit(ClientIp::bucket($ip));
 
-            if ($settings->burstBlock() > 0 && $count > $settings->burstBlock()) {
+            if ($passId !== null) {
+                $perAddress = $count;
+                $count = $this->counter->hit('pass.'.$passId);
+            }
+
+            if ($block > 0 && ($count > $block || ($perAddress ?? 0) > 3 * $block)) {
                 return new Verdict(Verdict::LIMIT, 'burst', $agent['name'] ?: null, true);
             }
         }
@@ -118,8 +126,15 @@ class Inspector
                 : Verdict::pass($agent['type'], $agent['name'], $agent['type'] === 'bot');
         }
 
+        // On the API, bursts only ever meet the hard limit: a challenge there
+        // reaches the forum's own page as an error it can't act on, and
+        // guests behind one shared address browse the API together.
+        if ($api) {
+            $burst = false;
+        }
+
         if ($passId !== null) {
-            return Verdict::pass('pass');
+            return $burst ? new Verdict(Verdict::CHALLENGE, 'burst', null, true) : Verdict::pass('pass');
         }
 
         if ($settings->challengeEveryone()) {

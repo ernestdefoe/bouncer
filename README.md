@@ -122,7 +122,16 @@ extension, so it works from the first request. You can refresh by hand with
   library (licence or update feeds, for example): add their paths under
   **Never check these paths**.
 - With OPcache (on by default in PHP-FPM), the data-centre list costs
-  nothing to load. Without it, about 3 ms on the requests that need it.
+  nothing to load. Without it, about 3 ms on the requests that need it. If
+  OPcache is set never to check timestamps (`opcache.validate_timestamps=0`),
+  PHP-FPM picks up a refreshed list at its next restart.
+- Run Flarum's scheduler as the web server's user, as Flarum's docs say. A
+  refresh run as root leaves a list the admin page's **Refresh now** can't
+  replace.
+- **API rate limits:** guests' API calls only ever meet the hard limit
+  (429). A challenge there would reach the forum's page as an error it
+  can't act on, and guests behind one shared address browse the API
+  together.
 
 ## Screenshots
 

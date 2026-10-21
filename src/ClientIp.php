@@ -99,6 +99,12 @@ class ClientIp
             && ! self::inCgnat($ip);
     }
 
+    /** Whether a proxy says it relayed this request for someone else. */
+    public static function relayed(ServerRequestInterface $request): bool
+    {
+        return $request->hasHeader('X-Forwarded-For') || $request->hasHeader('X-Real-IP') || $request->hasHeader('CF-Connecting-IP') || $request->hasHeader('Forwarded');
+    }
+
     public static function isLoopback(string $ip): bool
     {
         return $ip === '::1' || str_starts_with($ip, '127.');

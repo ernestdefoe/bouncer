@@ -2,6 +2,7 @@
  * Screenshots for the README and the announcement, on stock Flarum's default
  * theme, and a console/HTTP error sweep of the admin page:
  *   BASE=http://127.0.0.1:8471 TOKEN=<admin remember token> COOKIE=flarum node tools/shots.mjs
+ *   (OUT=<dir> to save elsewhere, ADMIN_ONLY=1 to skip the challenge shots)
  *
  * Headless Chrome says "HeadlessChrome" in its user agent, which Bouncer
  * challenges, so the shots use an ordinary Chrome user agent.
@@ -15,7 +16,8 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const BASE = process.env.BASE || 'http://127.0.0.1:8471';
 const TOKEN = process.env.TOKEN;
 const COOKIE = process.env.COOKIE || 'flarum';
-const OUT = `${dirname(fileURLToPath(import.meta.url))}/../screenshots`;
+const OUT = process.env.OUT || `${dirname(fileURLToPath(import.meta.url))}/../screenshots`;
+const ADMIN_ONLY = !!process.env.ADMIN_ONLY;
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const DESKTOP = { width: 1280, height: 900, deviceScaleFactor: 2 };
 const PHONE = { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
@@ -50,7 +52,7 @@ async function shot(page, name, clip) {
 
 // The challenge, frozen part-way: timers are stubbed so the proof of work
 // never starts, and the bar is set to show progress.
-for (const [name, viewport, dark] of [['challenge', DESKTOP, false], ['challenge-dark', DESKTOP, true], ['challenge-phone', PHONE, false]]) {
+for (const [name, viewport, dark] of ADMIN_ONLY ? [] : [['challenge', DESKTOP, false], ['challenge-dark', DESKTOP, true], ['challenge-phone', PHONE, false]]) {
   const page = await context(false, viewport, dark);
   await page.evaluateOnNewDocument(() => {
     window.setTimeout = () => 0;
@@ -63,7 +65,7 @@ for (const [name, viewport, dark] of [['challenge', DESKTOP, false], ['challenge
 }
 
 // A real visitor solving it: measured end to end.
-{
+if (!ADMIN_ONLY) {
   const page = await context(false);
   const started = Date.now();
   await page.goto(BASE + '/?bouncer-shot=1', { waitUntil: 'load' });
