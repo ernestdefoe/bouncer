@@ -31,10 +31,12 @@ async function context(admin, viewport = DESKTOP, dark = false) {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
+  // The challenge pages answer 403 on purpose; only the admin pages' console counts.
+  if (admin) page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
   page.on('response', (r) => r.status() >= 400 && !r.url().endsWith('favicon.ico') && !r.url().includes('/bouncer/verify') && r.status() !== 403 && errors.push(`${r.status()} ${r.url()}`));
   await page.setUserAgent(UA);
-  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
+  // XFF=<address> plays a reverse proxy, for a forum set to read X-Forwarded-For.
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9', ...(process.env.XFF ? { 'X-Forwarded-For': process.env.XFF } : {}) });
   await page.setViewport(viewport);
   await page.emulateMediaFeatures([
     { name: 'prefers-reduced-motion', value: 'reduce' },
