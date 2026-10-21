@@ -77,6 +77,8 @@ third-party captcha, and members get no extra JavaScript or database work.
   anyone.
 - **API clients with a token** (apps, bots, a GitHub release announcer) and
   Flarum's own internal API calls.
+- **The server itself.** Requests from loopback (a Docker health check
+  curling `http://127.0.0.1/`, a cache warmer, cron) are never checked.
 - **Anything but GET and HEAD.** Logins, posting, webhooks and payment
   callbacks go straight through.
 - **Ordinary visitors' database work.** A guest who isn't suspicious costs

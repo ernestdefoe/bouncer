@@ -15,7 +15,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
  * I/O an ordinary visitor costs is one counter increment (APCu or cache).
  *
  * Order matters:
- *  1. staff allow/block lists (addresses, then user agents);
+ *  1. the server itself (loopback), then staff allow/block lists (addresses, then user agents);
  *  2. search engines, verified by DNS: real ones always pass, fakes are
  *     turned away; never rate limited, never challenged;
  *  3. listed bots the admin blocks;
@@ -45,7 +45,8 @@ class Inspector
         $lower = strtolower($ua);
         $public = ClientIp::isPublic($ip);
 
-        if ($settings->allowedIps()->contains($ip)) {
+        // The server talking to itself: health checks, cache warmers, cron.
+        if (ClientIp::isLoopback($ip) || $settings->allowedIps()->contains($ip)) {
             return Verdict::pass('allowed_ip');
         }
 

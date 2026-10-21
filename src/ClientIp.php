@@ -70,6 +70,11 @@ class ClientIp
             && ! self::inCgnat($ip);
     }
 
+    public static function isLoopback(string $ip): bool
+    {
+        return $ip === '::1' || str_starts_with($ip, '127.');
+    }
+
     protected function trusted(string $ip): bool
     {
         return ! self::isPublic($ip) || $this->settings->trustedProxies()->contains($ip);

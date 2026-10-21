@@ -242,6 +242,23 @@ class GuardTest extends BouncerTestCase
     }
 
     #[Test]
+    public function the_server_checking_itself_is_never_challenged()
+    {
+        // A Docker health check: curl http://127.0.0.1/ from inside the container.
+        $this->set('everyone', '1');
+
+        $this->assertSame(200, $this->get('/', ['User-Agent' => 'curl/8.4.0', 'Accept-Language' => null], '127.0.0.1')->getStatusCode());
+        $this->assertSame(200, $this->get('/', ['User-Agent' => 'curl/8.4.0'], '::1')->getStatusCode());
+        $this->assertSame([], $this->logRows());
+
+        // Behind a proxy, a loopback hop a visitor writes into the header is skipped.
+        $this->assertTrue($this->isChallenge($this->get('/', ['User-Agent' => 'curl/8', 'X-Forwarded-For' => '127.0.0.1, 198.51.100.60'], '172.18.0.1')));
+
+        // A private address that isn't loopback (a proxy that hides visitors) is still checked.
+        $this->assertTrue($this->isChallenge($this->get('/', ['User-Agent' => 'curl/8'], '172.18.0.1')));
+    }
+
+    #[Test]
     public function under_attack_every_guest_is_challenged()
     {
         $this->set('everyone', '1');
