@@ -114,6 +114,7 @@ class GuardTest extends BouncerTestCase
     #[Test]
     public function verified_search_engines_are_never_challenged_or_rate_limited()
     {
+        $this->withinOneMinute();
         $this->dns('crawl-66-249-66-1.googlebot.com', ['66.249.66.1']);
         $this->set('everyone', '1');
         $this->set('burst_challenge', 2);
@@ -127,6 +128,7 @@ class GuardTest extends BouncerTestCase
     #[Test]
     public function a_fake_engine_cannot_get_past_by_using_up_the_dns_budget()
     {
+        $this->withinOneMinute();
         // Over the lookup budget DNS answers "unknown": the bot may be real,
         // so it isn't blocked, but it stays rate limited.
         $cache = $this->app()->getContainer()->make('cache.store');
@@ -195,6 +197,7 @@ class GuardTest extends BouncerTestCase
     #[Test]
     public function friendly_fetchers_pass_unless_they_burst()
     {
+        $this->withinOneMinute();
         $this->set('burst_challenge', 2);
         $ua = ['User-Agent' => 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)', 'Accept-Language' => null];
 
@@ -206,6 +209,7 @@ class GuardTest extends BouncerTestCase
     #[Test]
     public function bursts_are_challenged_then_refused()
     {
+        $this->withinOneMinute();
         $this->set('burst_challenge', 3);
         $this->set('burst_block', 5);
 

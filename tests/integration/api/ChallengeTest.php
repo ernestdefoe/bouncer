@@ -115,6 +115,7 @@ class ChallengeTest extends BouncerTestCase
     #[Test]
     public function verify_attempts_are_capped_per_address()
     {
+        $this->withinOneMinute();
         $token = $this->challenged();
 
         for ($i = 0; $i < 20; $i++) {

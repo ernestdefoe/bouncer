@@ -40,6 +40,17 @@ abstract class BouncerTestCase extends TestCase
         $this->setting(self::P.'difficulty', 8);
     }
 
+    /**
+     * Counters are per clock minute: start a test that relies on one well
+     * inside a minute, so it can't straddle the boundary.
+     */
+    protected function withinOneMinute(): void
+    {
+        if (time() % 60 > 45) {
+            sleep(61 - time() % 60);
+        }
+    }
+
     /** Change a Bouncer setting, before or after the app has booted. */
     protected function set(string $key, mixed $value): void
     {
