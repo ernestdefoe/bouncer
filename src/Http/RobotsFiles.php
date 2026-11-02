@@ -46,6 +46,8 @@ class RobotsFiles implements MiddlewareInterface
 
         $served = $response !== null && $response->getStatusCode() === 200;
 
+        // Robots is resolved only on these two paths (not injected), so the
+        // middleware costs nothing on every other forum request.
         if ($ai) {
             return $served
                 ? $response->withHeader('X-Bouncer', 'ai')

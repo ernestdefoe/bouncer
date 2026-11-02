@@ -47,6 +47,14 @@ class Updater
 
     public const CLOUDFLARE = ['https://www.cloudflare.com/ips-v4', 'https://www.cloudflare.com/ips-v6'];
 
+    /**
+     * Seconds after which no new request is started. With a 30-second
+     * per-request timeout the whole run ends within about 150 seconds, under
+     * the refresh button's 180-second limit, however slow a source is; the
+     * requests never started count as failures, so nothing is written.
+     */
+    protected int $deadline = 120;
+
     /** @var \Closure(list<string>): array<string, string|null> */
     protected \Closure $fetch;
 
@@ -140,7 +148,13 @@ class Updater
         return ['ranges' => $datacentre->count(), 'cloudflare' => $cloudflareSet->count(), 'asns' => count($asns)];
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * Native calls on purpose: unlike Illuminate's Filesystem::replace(),
+     * every step is checked, a failed write leaves no temporary file behind,
+     * and OPcache drops the old copy of this PHP file.
+     *
+     * @param array<string, mixed> $data
+     */
     public function write(string $file, array $data): void
     {
         $dir = dirname($file);
@@ -187,16 +201,36 @@ class Updater
      */
     protected function fetchAll(array $urls): array
     {
-        $client = new Client([
+        return $this->pool($this->client(), $urls);
+    }
+
+    protected function client(): Client
+    {
+        return new Client([
             'timeout' => 30,
             'connect_timeout' => 10,
             'allow_redirects' => false,
             'headers' => ['User-Agent' => 'ernestdefoe-bouncer (+https://github.com/ernestdefoe/bouncer)'],
         ]);
-        $out = array_fill_keys($urls, null);
+    }
 
-        $requests = function () use ($urls) {
+    /**
+     * @param list<string> $urls
+     * @return array<string, string|null>
+     */
+    public function pool(Client $client, array $urls): array
+    {
+        $out = array_fill_keys($urls, null);
+        $stop = microtime(true) + $this->deadline;
+
+        // The pool pulls the next request only when a slot frees up, so this
+        // check bounds the whole run, not just its start.
+        $requests = function () use ($urls, $stop) {
             foreach ($urls as $url) {
+                if (microtime(true) >= $stop) {
+                    return;
+                }
+
                 yield $url => new Request('GET', $url);
             }
         };

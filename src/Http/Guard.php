@@ -75,6 +75,9 @@ class Guard implements MiddlewareInterface
         return match ($verdict->action) {
             Verdict::CHALLENGE => $this->api
                 ? $this->apiError(403, 'bouncer_challenge_required', 'Open the forum in a browser to continue.')
+                // Resolved here, not injected: only a challenged guest needs
+                // the view factory and translator it brings (the API guard
+                // never does), so other requests build nothing extra.
                 : resolve(Challenge::class)->page($request, $ip, Challenge::returnPath($request)),
             Verdict::LIMIT => ($this->api
                 ? $this->apiError(429, 'too_many_requests', 'Too many requests. Try again in a minute.')
