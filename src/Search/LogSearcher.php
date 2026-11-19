@@ -22,6 +22,6 @@ class LogSearcher extends AbstractSearcher
     {
         $query = LogEntry::query();
 
-        return $actor->isAdmin() ? $query : $query->whereRaw('1 = 0');
+        return $actor->isAdmin() ? $query : $query->whereKey([]);
     }
 }

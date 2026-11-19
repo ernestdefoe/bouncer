@@ -146,5 +146,12 @@ class RefreshTest extends BouncerTestCase
         $this->assertNotEmpty($find('bouncer:networks', '17 4 * * 2'), 'weekly refresh');
         $this->assertNotEmpty($find('bouncer:networks --requested', '* * * * *'), "every minute, for an admin's refresh");
         $this->assertNotEmpty($find('bouncer:prune', '47 4 * * *'), 'daily prune');
+
+        // The every-minute run starts no process unless a refresh is waiting.
+        $container = $this->app()->getContainer();
+        $requested = array_values($find('bouncer:networks --requested', '* * * * *'))[0];
+        $this->assertFalse($requested->filtersPass($container));
+        $container->make(Cache::class)->put(RefreshNetworks::REQUESTED, 1, 60);
+        $this->assertTrue($requested->filtersPass($container));
     }
 }

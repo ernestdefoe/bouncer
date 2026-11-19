@@ -32,7 +32,7 @@ class ActionFilter implements FilterInterface
         $action = $this->asString($value);
 
         if (! in_array($action, LogEntry::ACTIONS, true)) {
-            $state->getQuery()->whereRaw('1 = 0');
+            $state->getQuery()->whereKey([]);
 
             return;
         }

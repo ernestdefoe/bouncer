@@ -16,6 +16,7 @@ use ErnestDefoe\Bouncer\Http\ApiGuard;
 use ErnestDefoe\Bouncer\Http\Guard;
 use ErnestDefoe\Bouncer\Http\RobotsFiles;
 use ErnestDefoe\Bouncer\Http\VerifyController;
+use ErnestDefoe\Bouncer\Job\RefreshNetworks;
 use ErnestDefoe\Bouncer\LogEntry;
 use ErnestDefoe\Bouncer\Network\Networks;
 use ErnestDefoe\Bouncer\Search\ActionFilter;
@@ -26,6 +27,7 @@ use Flarum\Foundation\Paths;
 use Flarum\Http\Middleware\SetLocale;
 use Flarum\Search\Database\DatabaseSearchDriver;
 use Illuminate\Console\Scheduling\Event;
+use Illuminate\Contracts\Cache\Repository as Cache;
 
 $prefix = 'ernestdefoe-bouncer.';
 
@@ -69,8 +71,11 @@ return [
         ->schedule(NetworksCommand::class, function (Event $event): void {
             $event->weeklyOn(2, '4:17');
         })
+        // An admin's "Refresh now" on a forum with no queue worker. Checked
+        // inside schedule:run, so a minute with nothing waiting starts no
+        // process.
         ->schedule(NetworksCommand::class, function (Event $event): void {
-            $event->everyMinute();
+            $event->everyMinute()->when(fn () => resolve(Cache::class)->has(RefreshNetworks::REQUESTED));
         }, ['--requested'])
         ->schedule(PruneCommand::class, function (Event $event): void {
             $event->dailyAt('4:47');
