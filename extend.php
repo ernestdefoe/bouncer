@@ -16,9 +16,15 @@ use ErnestDefoe\Bouncer\Http\ApiGuard;
 use ErnestDefoe\Bouncer\Http\Guard;
 use ErnestDefoe\Bouncer\Http\RobotsFiles;
 use ErnestDefoe\Bouncer\Http\VerifyController;
-use ErnestDefoe\Bouncer\Settings;
+use ErnestDefoe\Bouncer\LogEntry;
+use ErnestDefoe\Bouncer\Network\Networks;
+use ErnestDefoe\Bouncer\Search\ActionFilter;
+use ErnestDefoe\Bouncer\Search\LogFulltext;
+use ErnestDefoe\Bouncer\Search\LogSearcher;
 use Flarum\Extend;
+use Flarum\Foundation\Paths;
 use Flarum\Http\Middleware\SetLocale;
+use Flarum\Search\Database\DatabaseSearchDriver;
 use Illuminate\Console\Scheduling\Event;
 
 $prefix = 'ernestdefoe-bouncer.';
@@ -30,6 +36,12 @@ return [
         ->css(__DIR__.'/less/admin.less'),
 
     (new Extend\ServiceProvider())->register(BouncerServiceProvider::class),
+
+    // Where `bouncer:networks` writes the refreshed lists. It must stay on
+    // the local driver (the default; core only changes it if config.php or a
+    // disk_driver setting says so): Networks includes the file by path, for
+    // OPcache.
+    (new Extend\Filesystem())->disk('ernestdefoe-bouncer', fn (Paths $paths) => ['root' => Networks::directory($paths)]),
 
     (new Extend\View())->namespace('bouncer', __DIR__.'/resources/views'),
 
@@ -43,12 +55,13 @@ return [
 
     (new Extend\Csrf())->exemptRoute('ernestdefoe-bouncer.verify'),
 
-    (new Extend\Routes('api'))
-        ->get('/bouncer/status', 'ernestdefoe-bouncer.status', Api\StatusController::class)
-        ->get('/bouncer/log', 'ernestdefoe-bouncer.log', Api\ListLogController::class)
-        ->delete('/bouncer/log', 'ernestdefoe-bouncer.log.clear', Api\ClearLogController::class)
-        ->post('/bouncer/networks', 'ernestdefoe-bouncer.networks', Api\RefreshNetworksController::class)
-        ->get('/bouncer/robots-check', 'ernestdefoe-bouncer.robots-check', Api\RobotsCheckController::class),
+    new Extend\ApiResource(Api\LogResource::class),
+    new Extend\ApiResource(Api\BouncerResource::class),
+
+    (new Extend\SearchDriver(DatabaseSearchDriver::class))
+        ->addSearcher(LogEntry::class, LogSearcher::class)
+        ->addFilter(LogSearcher::class, ActionFilter::class)
+        ->setFulltext(LogSearcher::class, LogFulltext::class),
 
     (new Extend\Console())
         ->command(NetworksCommand::class)
@@ -56,6 +69,9 @@ return [
         ->schedule(NetworksCommand::class, function (Event $event): void {
             $event->weeklyOn(2, '4:17');
         })
+        ->schedule(NetworksCommand::class, function (Event $event): void {
+            $event->everyMinute();
+        }, ['--requested'])
         ->schedule(PruneCommand::class, function (Event $event): void {
             $event->dailyAt('4:47');
         }),
@@ -78,5 +94,5 @@ return [
         ->default($prefix.'robots', true)
         ->default($prefix.'ai_txt', false)
         ->default($prefix.'bots', '{}')
-        ->default($prefix.'exempt_paths', Settings::DEFAULT_EXEMPT),
+        ->default($prefix.'exempt_paths', "/robots.txt\n/ai.txt\n/sitemap\n/.well-known/\n/atom\n/rss\n/feed\n/favicon\n/webmanifest\n/sw\n/offline"),
 ];

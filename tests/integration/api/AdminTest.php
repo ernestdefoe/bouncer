@@ -7,6 +7,14 @@ use PHPUnit\Framework\Attributes\Test;
 
 class AdminTest extends BouncerTestCase
 {
+    /** @return array{total: int, rows: list<array<string, mixed>>} */
+    protected function log(array $filter = []): array
+    {
+        $body = json_decode((string) $this->api('GET', '/api/bouncer-log', 1, $filter ? ['filter' => $filter] : [])->getBody(), true);
+
+        return ['total' => $body['meta']['page']['total'], 'rows' => array_column($body['data'], 'attributes')];
+    }
+
     protected function api(string $method, string $path, ?int $user, array $query = [])
     {
         $request = $this->request($method, $path, $user ? ['authenticatedAs' => $user] : [])->withQueryParams($query);
@@ -17,7 +25,7 @@ class AdminTest extends BouncerTestCase
     #[Test]
     public function only_admins_reach_the_staff_endpoints()
     {
-        foreach ([['GET', '/api/bouncer/status'], ['GET', '/api/bouncer/log'], ['DELETE', '/api/bouncer/log'], ['POST', '/api/bouncer/networks'], ['GET', '/api/bouncer/robots-check']] as [$method, $path]) {
+        foreach ([['GET', '/api/bouncer/status'], ['GET', '/api/bouncer-log'], ['DELETE', '/api/bouncer-log'], ['POST', '/api/bouncer/networks'], ['GET', '/api/bouncer/networks'], ['GET', '/api/bouncer/robots-check']] as [$method, $path]) {
             $this->assertContains($this->api($method, $path, null)->getStatusCode(), [400, 401, 403], "guest $method $path (400: no CSRF token)");
             $this->assertSame(403, $this->api($method, $path, 2)->getStatusCode(), "member $method $path");
         }
@@ -29,26 +37,26 @@ class AdminTest extends BouncerTestCase
         $this->get('/', ['User-Agent' => self::GPTBOT]);
         $this->get('/', ['User-Agent' => 'curl/8.4.0'], '198.51.100.50');
 
-        $all = json_decode((string) $this->api('GET', '/api/bouncer/log', 1)->getBody(), true);
+        $all = $this->log();
         $this->assertSame(2, $all['total']);
         $this->assertSame('curl/8.4.0', $all['rows'][0]['userAgent'], 'newest first');
 
-        $blocked = json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['action' => 'blocked'])->getBody(), true);
+        $blocked = $this->log(['action' => 'blocked']);
         $this->assertSame(['GPTBot'], array_column($blocked['rows'], 'bot'));
 
-        $search = json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '198.51.100'])->getBody(), true);
+        $search = $this->log(['q' => '198.51.100']);
         $this->assertSame(1, $search['total']);
 
         // Case doesn't matter, and _ and % are literal, on every database.
         $this->get('/', ['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) HeadlessChrome/120'], '198.51.100.51');
-        $this->assertSame(1, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '10_15'])->getBody(), true)['total']);
-        $this->assertSame(0, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => '10%15'])->getBody(), true)['total']);
-        $this->assertSame(1, json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['q' => 'gptbot'])->getBody(), true)['total']);
+        $this->assertSame(1, $this->log(['q' => '10_15'])['total']);
+        $this->assertSame(0, $this->log(['q' => '10%15'])['total']);
+        $this->assertSame(1, $this->log(['q' => 'gptbot'])['total']);
 
-        $junk = json_decode((string) $this->api('GET', '/api/bouncer/log', 1, ['action' => "x' OR 1=1 --", 'q' => '%_%'])->getBody(), true);
+        $junk = $this->log(['action' => "x' OR 1=1 --", 'q' => '%_%']);
         $this->assertSame(0, $junk['total']);
 
-        $this->assertSame(204, $this->api('DELETE', '/api/bouncer/log', 1)->getStatusCode());
+        $this->assertSame(204, $this->api('DELETE', '/api/bouncer-log', 1)->getStatusCode());
         $this->assertSame(0, $this->database()->table('bouncer_log')->count());
 
         // A bot still hammering after the clear starts a new row.

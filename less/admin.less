@@ -95,6 +95,13 @@
       width: auto;
       flex: 1 1 180px;
     }
+
+    // Phones get a 16px font in a 36px box: without the vertical padding
+    // a select's text is cut off.
+    select.FormControl {
+      padding-top: 0;
+      padding-bottom: 0;
+    }
   }
 
   &-when {

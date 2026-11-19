@@ -10,6 +10,7 @@ use ErnestDefoe\Bouncer\Settings;
 use GuzzleHttp\Client;
 use GuzzleHttp\Pool;
 use GuzzleHttp\Psr7\Request;
+use Illuminate\Contracts\Filesystem\Factory;
 use Psr\Http\Message\ResponseInterface;
 
 /**
@@ -50,7 +51,7 @@ class Updater
     /**
      * Seconds after which no new request is started. With a 30-second
      * per-request timeout the whole run ends within about 150 seconds, under
-     * the refresh button's 180-second limit, however slow a source is; the
+     * the refresh job's 180-second timeout, however slow a source is; the
      * requests never started count as failures, so nothing is written.
      */
     protected int $deadline = 120;
@@ -58,9 +59,19 @@ class Updater
     /** @var \Closure(list<string>): array<string, string|null> */
     protected \Closure $fetch;
 
+    /** Per-request options for every source. */
+    protected const OPTIONS = [
+        'timeout' => 30,
+        'connect_timeout' => 10,
+        'allow_redirects' => false,
+        'headers' => ['User-Agent' => 'ernestdefoe-bouncer (+https://github.com/ernestdefoe/bouncer)'],
+    ];
+
     public function __construct(
         protected Settings $settings,
         protected Networks $networks,
+        protected Factory $filesystem,
+        protected Client $http,
     ) {
         $this->fetch = $this->fetchAll(...);
     }
@@ -75,12 +86,18 @@ class Updater
         $this->fetch = $fetch;
     }
 
-    /** @return list<int> */
-    public function asns(): array
+    /**
+     * The networks a refresh fetches: the defaults, plus the admin's extras,
+     * minus the ones the admin ignores. Static, so the admin overview can
+     * show them without building an updater (and its HTTP client).
+     *
+     * @return list<int>
+     */
+    public static function asns(Settings $settings): array
     {
         $asns = array_diff(
-            array_unique([...array_keys(self::DEFAULT_ASNS), ...$this->settings->extraAsns()]),
-            $this->settings->ignoredAsns()
+            array_unique([...array_keys(self::DEFAULT_ASNS), ...$settings->extraAsns()]),
+            $settings->ignoredAsns()
         );
         sort($asns);
 
@@ -96,10 +113,38 @@ class Updater
      */
     public function update(): array
     {
-        $asns = $this->asns();
+        $asns = self::asns($this->settings);
         $urls = array_map(fn (int $asn) => sprintf(self::RIPESTAT, $asn), $asns);
         $bodies = ($this->fetch)([...$urls, ...self::CLOUDFLARE]);
 
+        $datacentre = RangeSet::fromCidrs($this->prefixes($asns, $urls, $bodies));
+        $cloudflareSet = RangeSet::fromCidrs($this->cloudflare($bodies));
+
+        if ($datacentre->isEmpty()) {
+            throw new \RuntimeException('No data-centre ranges found');
+        }
+
+        $this->write([
+            'updated' => time(),
+            'asns' => $asns,
+            'datacentre' => $datacentre->toArray(),
+            'cloudflare' => $cloudflareSet->toArray(),
+        ]);
+        $this->networks->reset();
+
+        return ['ranges' => $datacentre->count(), 'cloudflare' => $cloudflareSet->count(), 'asns' => count($asns)];
+    }
+
+    /**
+     * Every network's announced prefixes, from RIPEstat's answers.
+     *
+     * @param list<int> $asns
+     * @param list<string> $urls the RIPEstat URL of each, in the same order
+     * @param array<string, string|null> $bodies
+     * @return list<string>
+     */
+    protected function prefixes(array $asns, array $urls, array $bodies): array
+    {
         $prefixes = [];
 
         foreach ($asns as $i => $asn) {
@@ -117,6 +162,17 @@ class Updater
             }
         }
 
+        return $prefixes;
+    }
+
+    /**
+     * Cloudflare's ranges: every line of both lists must be one.
+     *
+     * @param array<string, string|null> $bodies
+     * @return list<string>
+     */
+    protected function cloudflare(array $bodies): array
+    {
         $cloudflare = [];
 
         foreach (self::CLOUDFLARE as $url) {
@@ -130,52 +186,33 @@ class Updater
             array_push($cloudflare, ...$valid);
         }
 
-        $datacentre = RangeSet::fromCidrs($prefixes);
-        $cloudflareSet = RangeSet::fromCidrs($cloudflare);
-
-        if ($datacentre->isEmpty()) {
-            throw new \RuntimeException('No data-centre ranges found');
-        }
-
-        $this->write($this->networks->file(), [
-            'updated' => time(),
-            'asns' => $asns,
-            'datacentre' => $datacentre->toArray(),
-            'cloudflare' => $cloudflareSet->toArray(),
-        ]);
-        $this->networks->reset();
-
-        return ['ranges' => $datacentre->count(), 'cloudflare' => $cloudflareSet->count(), 'asns' => count($asns)];
+        return $cloudflare;
     }
 
     /**
-     * Native calls on purpose: unlike Illuminate's Filesystem::replace(),
-     * every step is checked, a failed write leaves no temporary file behind,
-     * and OPcache drops the old copy of this PHP file.
+     * Written under a temporary name and moved into place (a rename on the
+     * local disk), so a request never includes half a file. OPcache is told
+     * to drop this process's copy of the old file.
      *
      * @param array<string, mixed> $data
      */
-    public function write(string $file, array $data): void
+    public function write(array $data): void
     {
-        $dir = dirname($file);
-
-        if (! is_dir($dir) && ! @mkdir($dir, 0775, true) && ! is_dir($dir)) {
-            throw new \RuntimeException("Can't create $dir");
-        }
-
-        // Written to a temporary file and renamed, so a request never
-        // includes half a file.
-        $tmp = $file.'.'.bin2hex(random_bytes(4)).'.tmp';
+        $disk = $this->filesystem->disk(Networks::DISK);
+        $tmp = Networks::FILE.'.'.bin2hex(random_bytes(4)).'.tmp';
         $php = "<?php\n\n// Written by ernestdefoe/bouncer (php flarum bouncer:networks). Do not edit.\n\nreturn ".self::export($data).";\n";
 
-        if (file_put_contents($tmp, $php) === false || ! rename($tmp, $file)) {
-            @unlink($tmp);
+        if (! $disk->put($tmp, $php) || ! $disk->move($tmp, Networks::FILE)) {
+            $disk->delete($tmp);
 
-            throw new \RuntimeException("Can't write $file");
+            throw new \RuntimeException("Can't write {$disk->path(Networks::FILE)}");
         }
 
+        // Only this process's OPcache: PHP-FPM's own checks the file's mtime,
+        // or, with validate_timestamps off, reloads it at its next restart
+        // (see README). Silenced, as opcache.restrict_api can forbid the call.
         if (function_exists('opcache_invalidate')) {
-            @opcache_invalidate($file, true);
+            @opcache_invalidate($disk->path(Networks::FILE), true);
         }
     }
 
@@ -201,17 +238,7 @@ class Updater
      */
     protected function fetchAll(array $urls): array
     {
-        return $this->pool($this->client(), $urls);
-    }
-
-    protected function client(): Client
-    {
-        return new Client([
-            'timeout' => 30,
-            'connect_timeout' => 10,
-            'allow_redirects' => false,
-            'headers' => ['User-Agent' => 'ernestdefoe-bouncer (+https://github.com/ernestdefoe/bouncer)'],
-        ]);
+        return $this->pool($this->http, $urls);
     }
 
     /**
@@ -237,6 +264,7 @@ class Updater
 
         (new Pool($client, $requests(), [
             'concurrency' => 4,
+            'options' => self::OPTIONS,
             'fulfilled' => function (ResponseInterface $response, string $url) use (&$out) {
                 if ($response->getStatusCode() === 200) {
                     $out[$url] = (string) $response->getBody();

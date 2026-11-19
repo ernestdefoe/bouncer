@@ -24,7 +24,8 @@ use Psr\Http\Server\RequestHandlerInterface as Handler;
 class RobotsFiles implements MiddlewareInterface
 {
     public function __construct(
-        protected Settings $settings
+        protected Settings $settings,
+        protected Robots $robots,
     ) {
     }
 
@@ -46,17 +47,15 @@ class RobotsFiles implements MiddlewareInterface
 
         $served = $response !== null && $response->getStatusCode() === 200;
 
-        // Robots is resolved only on these two paths (not injected), so the
-        // middleware costs nothing on every other forum request.
         if ($ai) {
             return $served
                 ? $response->withHeader('X-Bouncer', 'ai')
-                : self::text(resolve(Robots::class)->aiTxt(), 'ai');
+                : self::text($this->robots->aiTxt(), 'ai');
         }
 
         $existing = $served && str_starts_with($response->getHeaderLine('Content-Type'), 'text/plain') ? (string) $response->getBody() : null;
 
-        return self::text(resolve(Robots::class)->robotsTxt($existing), 'robots');
+        return self::text($this->robots->robotsTxt($existing), 'robots');
     }
 
     protected static function text(string $body, string $which): Response

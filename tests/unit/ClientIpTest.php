@@ -5,6 +5,7 @@ namespace ErnestDefoe\Bouncer\Tests\unit;
 use ErnestDefoe\Bouncer\ClientIp;
 use ErnestDefoe\Bouncer\Network\Networks;
 use Flarum\Foundation\Paths;
+use Illuminate\Contracts\Filesystem\Factory;
 use Laminas\Diactoros\ServerRequest;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -14,7 +15,7 @@ class ClientIpTest extends TestCase
     protected function resolve(string $remote, array $headers = [], string $proxies = '', string $header = 'x-forwarded-for'): string
     {
         $tmp = sys_get_temp_dir().'/bouncer-none';
-        $networks = new Networks(new Paths(['base' => $tmp, 'public' => $tmp, 'storage' => $tmp, 'vendor' => $tmp]));
+        $networks = new Networks(new Paths(['base' => $tmp, 'public' => $tmp, 'storage' => $tmp, 'vendor' => $tmp]), $this->createStub(Factory::class));
         $settings = TokensTest::settings(['ernestdefoe-bouncer.trusted_proxies' => $proxies, 'ernestdefoe-bouncer.ip_header' => $header]);
 
         return (new ClientIp($settings, $networks))->resolve(new ServerRequest(['REMOTE_ADDR' => $remote], [], '/', 'GET', 'php://memory', $headers));

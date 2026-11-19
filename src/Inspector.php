@@ -41,10 +41,58 @@ class Inspector
 
     public function inspect(Request $request, string $ip, ?string $pass, bool $api): Verdict
     {
-        $settings = $this->settings;
         $ua = $request->getHeaderLine('User-Agent');
-        $lower = strtolower($ua);
         $public = ClientIp::isPublic($ip);
+
+        if ($verdict = $this->listed($request, $ip, strtolower($ua))) {
+            return $verdict;
+        }
+
+        $agent = Agents::identify($ua);
+        [$verdict, $unverified] = $this->known($agent, $ip);
+
+        if ($verdict) {
+            return $verdict;
+        }
+
+        // A day's grace on the API: a page left open past its pass still loads more.
+        $passId = $this->tokens->validPass($pass, $ua, ClientIp::network($ip), $api ? 86400 : 0);
+        [$count, $perAddress] = $public ? $this->count($ip, $passId) : [0, 0];
+        $block = $this->settings->burstBlock();
+
+        if ($block > 0 && ($count > $block || $perAddress > 3 * $block)) {
+            return new Verdict(Verdict::LIMIT, 'burst', $agent['name'] ?: null, true);
+        }
+
+        $burst = $this->settings->burstChallenge() > 0 && $count > $this->settings->burstChallenge();
+
+        // Allowed bots, link previews, monitors and feed readers can't solve
+        // a challenge, and their user agents prove nothing: let in, but only
+        // at a pace no real one needs, so borrowing the name buys little.
+        if ($agent['type'] === 'bot' || $agent['type'] === 'friendly') {
+            return $burst
+                ? new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'], true)
+                : Verdict::pass($agent['type'], $agent['name'], $agent['type'] === 'bot');
+        }
+
+        // On the API, bursts only ever meet the hard limit: a challenge there
+        // reaches the forum's own page as an error it can't act on, and
+        // guests behind one shared address browse the API together.
+        $burst = $burst && ! $api;
+
+        if ($passId !== null) {
+            return $burst ? new Verdict(Verdict::CHALLENGE, 'burst', null, true) : Verdict::pass('pass');
+        }
+
+        return $this->signals($request, $ua, $ip, $agent, $public)
+            ?? ($burst ? new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'] ?: null, true) : null)
+            ?? Verdict::pass($unverified ? 'engine_unverified' : 'none');
+    }
+
+    /** Step 1: the server itself, then the staff's address and user-agent lists. */
+    protected function listed(Request $request, string $ip, string $lower): ?Verdict
+    {
+        $settings = $this->settings;
 
         // The server talking to itself (health checks, cache warmers, cron):
         // loopback, with no proxy header saying it was relayed for someone.
@@ -68,18 +116,29 @@ class Inspector
             }
         }
 
-        $agent = Agents::identify($ua);
+        return null;
+    }
+
+    /**
+     * Steps 2 and 3: search engines by DNS, and listed bots the admin blocks.
+     *
+     * @param array<string, mixed> $agent from Agents::identify()
+     * @return array{0: ?Verdict, 1: bool} the verdict if any, and whether DNS
+     *                                     couldn't vouch for an engine either way
+     */
+    protected function known(array $agent, string $ip): array
+    {
         $unverified = false;
 
         if ($agent['type'] === 'engine') {
             $check = $this->crawler->verify($ip, $agent['suffixes'] ?? []);
 
             if ($check === Crawler::VERIFIED) {
-                return Verdict::pass('engine', $agent['name'], true);
+                return [Verdict::pass('engine', $agent['name'], true), false];
             }
 
-            if ($check === Crawler::FAKE && ($action = $this->signal('fake_engines', 'block'))) {
-                return new Verdict($action, 'fake_engine', $agent['name'], true);
+            if ($check === Crawler::FAKE && ($action = $this->signal('fake_engines'))) {
+                return [new Verdict($action, 'fake_engine', $agent['name'], true), false];
             }
 
             // DNS couldn't vouch for it (lookup budget spent): it may be real,
@@ -88,56 +147,41 @@ class Inspector
             $unverified = $check === Crawler::UNKNOWN;
         }
 
-        if ($agent['type'] === 'bot' && $settings->botBlocked($agent['key'], Agents::botBlockedByDefault($agent['key']))) {
-            return new Verdict(Verdict::BLOCK, 'bot', $agent['name'], true);
+        if ($agent['type'] === 'bot' && $this->settings->botBlocked($agent['key'], Agents::botBlockedByDefault($agent['key']))) {
+            return [new Verdict(Verdict::BLOCK, 'bot', $agent['name'], true), $unverified];
         }
 
-        // A day's grace on the API: a page left open past its pass still loads more.
-        $passId = $this->tokens->validPass($pass, $ua, ClientIp::network($ip), $api ? 86400 : 0);
+        return [null, $unverified];
+    }
 
-        // Counted per address (per /64 for IPv6) and, for a pass holder, per
-        // pass too: guests sharing an office or school address each get the
-        // limit to themselves, but no address gets more than three times it,
-        // however many passes it collects.
-        $count = 0;
-        $block = $settings->burstBlock();
-
-        if ($public && ($block > 0 || $settings->burstChallenge() > 0)) {
-            $count = $this->counter->hit(ClientIp::bucket($ip));
-
-            if ($passId !== null) {
-                $perAddress = $count;
-                $count = $this->counter->hit('pass.'.$passId);
-            }
-
-            if ($block > 0 && ($count > $block || ($perAddress ?? 0) > 3 * $block)) {
-                return new Verdict(Verdict::LIMIT, 'burst', $agent['name'] ?: null, true);
-            }
+    /**
+     * Step 4: this minute's count, per address (per /64 for IPv6) and, for a
+     * pass holder, per pass too: guests sharing an office or school address
+     * each get the limit to themselves, but no address gets more than three
+     * times it, however many passes it collects.
+     *
+     * @return array{0: int, 1: int} the count that applies, and the address's own
+     */
+    protected function count(string $ip, ?string $passId): array
+    {
+        if ($this->settings->burstBlock() <= 0 && $this->settings->burstChallenge() <= 0) {
+            return [0, 0];
         }
 
-        $burst = $settings->burstChallenge() > 0 && $count > $settings->burstChallenge();
+        $perAddress = $this->counter->hit(ClientIp::bucket($ip));
 
-        // Allowed bots, link previews, monitors and feed readers can't solve
-        // a challenge, and their user agents prove nothing: let in, but only
-        // at a pace no real one needs, so borrowing the name buys little.
-        if ($agent['type'] === 'bot' || $agent['type'] === 'friendly') {
-            return $burst
-                ? new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'], true)
-                : Verdict::pass($agent['type'], $agent['name'], $agent['type'] === 'bot');
-        }
+        return $passId === null ? [$perAddress, 0] : [$this->counter->hit('pass.'.$passId), $perAddress];
+    }
 
-        // On the API, bursts only ever meet the hard limit: a challenge there
-        // reaches the forum's own page as an error it can't act on, and
-        // guests behind one shared address browse the API together.
-        if ($api) {
-            $burst = false;
-        }
-
-        if ($passId !== null) {
-            return $burst ? new Verdict(Verdict::CHALLENGE, 'burst', null, true) : Verdict::pass('pass');
-        }
-
-        if ($settings->challengeEveryone()) {
+    /**
+     * Step 7: the signals that earn a challenge (or a block, if the admin
+     * chose that), before bursts.
+     *
+     * @param array<string, mixed> $agent from Agents::identify()
+     */
+    protected function signals(Request $request, string $ua, string $ip, array $agent, bool $public): ?Verdict
+    {
+        if ($this->settings->challengeEveryone()) {
             return new Verdict(Verdict::CHALLENGE, 'everyone');
         }
 
@@ -153,11 +197,7 @@ class Inspector
             return new Verdict($action, 'datacentre', null, true);
         }
 
-        if ($burst) {
-            return new Verdict(Verdict::CHALLENGE, 'burst', $agent['name'] ?: null, true);
-        }
-
-        return Verdict::pass($unverified ? 'engine_unverified' : 'none');
+        return null;
     }
 
     /**
@@ -176,9 +216,9 @@ class Inspector
     }
 
     /** The admin's action for a signal: challenge or block, null when it's off. */
-    protected function signal(string $name, string $default = 'challenge'): ?string
+    protected function signal(string $name): ?string
     {
-        $action = $this->settings->action($name, $default);
+        $action = $this->settings->action($name);
 
         return $action === 'off' ? null : $action;
     }

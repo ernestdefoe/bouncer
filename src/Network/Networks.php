@@ -7,6 +7,7 @@
 namespace ErnestDefoe\Bouncer\Network;
 
 use Flarum\Foundation\Paths;
+use Illuminate\Contracts\Filesystem\Factory;
 
 /**
  * The data-centre and Cloudflare ranges: the copy `bouncer:networks` last
@@ -19,6 +20,11 @@ class Networks
 {
     public const BUNDLED = __DIR__.'/../../resources/networks.php';
 
+    /** The filesystem disk `bouncer:networks` writes to (storage/bouncer), and the file on it. */
+    public const DISK = 'ernestdefoe-bouncer';
+
+    public const FILE = 'networks.php';
+
     /** @var array<string, mixed>|null */
     protected ?array $data = null;
 
@@ -27,13 +33,24 @@ class Networks
     protected ?RangeSet $cloudflare = null;
 
     public function __construct(
-        protected Paths $paths
+        protected Paths $paths,
+        protected Factory $filesystem,
     ) {
     }
 
+    /** The disk's root, for its config in extend.php. */
+    public static function directory(Paths $paths): string
+    {
+        return $paths->storage.'/bouncer';
+    }
+
+    /**
+     * Read by path, not through the disk: `include` is what lets OPcache
+     * serve the lists from shared memory, and it needs a real file.
+     */
     public function file(): string
     {
-        return $this->paths->storage.'/bouncer/networks.php';
+        return self::directory($this->paths).'/'.self::FILE;
     }
 
     public function datacentre(): RangeSet
@@ -54,7 +71,7 @@ class Networks
         return [
             'updated' => (int) ($data['updated'] ?? 0),
             'asns' => array_values(array_map('intval', (array) ($data['asns'] ?? []))),
-            'source' => is_file($this->file()) ? 'storage' : 'bundled',
+            'source' => $this->filesystem->disk(self::DISK)->exists(self::FILE) ? 'storage' : 'bundled',
             'ranges' => $this->datacentre()->count(),
         ];
     }
@@ -72,6 +89,7 @@ class Networks
             return $this->data;
         }
 
+        // By path (see file()); is_file() first, as include warns on a missing file.
         foreach ([$this->file(), self::BUNDLED] as $file) {
             if (is_file($file)) {
                 $data = include $file;

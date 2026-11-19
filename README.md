@@ -102,7 +102,9 @@ only** for a day and read the log.
 The data-centre list is refreshed weekly by Flarum's scheduler, so make sure
 `php flarum schedule:run` runs from cron. A snapshot ships with the
 extension, so it works from the first request. You can refresh by hand with
-`php flarum bouncer:networks`.
+`php flarum bouncer:networks`, or with **Refresh now** on the Overview tab,
+which runs on Flarum's queue (in the background with a queue worker, during
+the request without one) and reports back when it's done.
 
 ### Good to know
 

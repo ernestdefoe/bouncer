@@ -17,8 +17,6 @@ class Settings
 {
     public const PREFIX = 'ernestdefoe-bouncer.';
 
-    public const DEFAULT_EXEMPT = "/robots.txt\n/ai.txt\n/sitemap\n/.well-known/\n/atom\n/rss\n/feed\n/favicon\n/webmanifest\n/sw\n/offline";
-
     /** @var array<string, array{0: string, 1: mixed}> */
     protected array $memo = [];
 
@@ -27,9 +25,10 @@ class Settings
     ) {
     }
 
-    public function get(string $key, mixed $default = null): mixed
+    /** Defaults come from extend.php's Extend\Settings, so none are repeated here. */
+    public function get(string $key): mixed
     {
-        return $this->settings->get(self::PREFIX.$key, $default);
+        return $this->settings->get(self::PREFIX.$key);
     }
 
     /**
@@ -39,7 +38,7 @@ class Settings
      */
     public function secret(): string
     {
-        $secret = (string) $this->get('secret', '');
+        $secret = (string) $this->get('secret');
 
         if (strlen($secret) < 32) {
             $secret = bin2hex(random_bytes(32));
@@ -58,7 +57,7 @@ class Settings
     /** The header the reverse proxy puts the visitor's address in, if any. */
     public function ipHeader(): ?string
     {
-        $value = (string) $this->get('ip_header', 'none');
+        $value = (string) $this->get('ip_header');
 
         return in_array($value, ['x-forwarded-for', 'x-real-ip'], true) ? $value : null;
     }
@@ -70,56 +69,56 @@ class Settings
 
     public function guardApi(): bool
     {
-        return (bool) $this->get('api', true);
+        return (bool) $this->get('api');
     }
 
-    /** challenge | block | off */
-    public function action(string $signal, string $default = 'challenge'): string
+    /** challenge | block | off; a value that is none of these challenges. */
+    public function action(string $signal): string
     {
-        $value = (string) $this->get($signal, $default);
+        $value = (string) $this->get($signal);
 
-        return in_array($value, ['challenge', 'block', 'off'], true) ? $value : $default;
+        return in_array($value, ['challenge', 'block', 'off'], true) ? $value : 'challenge';
     }
 
     public function burstChallenge(): int
     {
-        return max(0, (int) $this->get('burst_challenge', 60));
+        return max(0, (int) $this->get('burst_challenge'));
     }
 
     public function burstBlock(): int
     {
-        return max(0, (int) $this->get('burst_block', 300));
+        return max(0, (int) $this->get('burst_block'));
     }
 
     public function difficulty(): int
     {
-        return max(8, min(24, (int) $this->get('difficulty', 16)));
+        return max(8, min(24, (int) $this->get('difficulty')));
     }
 
     public function passLifetime(): int
     {
-        return max(1, min(90, (int) $this->get('pass_days', 7))) * 86400;
+        return max(1, min(90, (int) $this->get('pass_days'))) * 86400;
     }
 
     public function logDays(): int
     {
-        return max(1, min(365, (int) $this->get('log_days', 14)));
+        return max(1, min(365, (int) $this->get('log_days')));
     }
 
     public function robots(): bool
     {
-        return (bool) $this->get('robots', true);
+        return (bool) $this->get('robots');
     }
 
     public function aiTxt(): bool
     {
-        return (bool) $this->get('ai_txt', false);
+        return (bool) $this->get('ai_txt');
     }
 
     /** Overrides of each listed bot's default: key => allow|block. @return array<string, string> */
     public function botPolicies(): array
     {
-        return $this->memo('bots', '{}', function (string $raw) {
+        return $this->memo('bots', function (string $raw) {
             $raw = json_decode($raw, true);
 
             return is_array($raw)
@@ -137,35 +136,35 @@ class Settings
 
     public function allowedIps(): RangeSet
     {
-        return $this->memo('allow_ips', '', RangeSet::fromText(...));
+        return $this->memo('allow_ips', RangeSet::fromText(...));
     }
 
     public function blockedIps(): RangeSet
     {
-        return $this->memo('block_ips', '', RangeSet::fromText(...));
+        return $this->memo('block_ips', RangeSet::fromText(...));
     }
 
     public function trustedProxies(): RangeSet
     {
-        return $this->memo('trusted_proxies', '', RangeSet::fromText(...));
+        return $this->memo('trusted_proxies', RangeSet::fromText(...));
     }
 
     /** @return list<string> lowercase */
     public function allowedAgents(): array
     {
-        return $this->memo('allow_agents', '', fn (string $raw) => array_map('strtolower', RangeSet::lines($raw)));
+        return $this->memo('allow_agents', fn (string $raw) => array_map('strtolower', RangeSet::lines($raw)));
     }
 
     /** @return list<string> lowercase */
     public function blockedAgents(): array
     {
-        return $this->memo('block_agents', '', fn (string $raw) => array_map('strtolower', RangeSet::lines($raw)));
+        return $this->memo('block_agents', fn (string $raw) => array_map('strtolower', RangeSet::lines($raw)));
     }
 
     /** Path prefixes never checked. @return list<string> */
     public function exemptPaths(): array
     {
-        return $this->memo('exempt_paths', self::DEFAULT_EXEMPT, fn (string $raw) => array_values(array_filter(
+        return $this->memo('exempt_paths', fn (string $raw) => array_values(array_filter(
             RangeSet::lines($raw),
             fn ($p) => str_starts_with($p, '/')
         )));
@@ -174,13 +173,13 @@ class Settings
     /** @return list<int> */
     public function extraAsns(): array
     {
-        return self::asnList((string) $this->get('extra_asns', ''));
+        return self::asnList((string) $this->get('extra_asns'));
     }
 
     /** @return list<int> */
     public function ignoredAsns(): array
     {
-        return self::asnList((string) $this->get('ignore_asns', ''));
+        return self::asnList((string) $this->get('ignore_asns'));
     }
 
     /** @return array{site: string, secret: string}|null */
@@ -211,9 +210,9 @@ class Settings
      * @param callable(string): T $parse
      * @return T
      */
-    protected function memo(string $key, string $default, callable $parse): mixed
+    protected function memo(string $key, callable $parse): mixed
     {
-        $raw = (string) $this->get($key, $default);
+        $raw = (string) $this->get($key);
 
         if (! isset($this->memo[$key]) || $this->memo[$key][0] !== $raw) {
             $this->memo[$key] = [$raw, $parse($raw)];

@@ -35,7 +35,13 @@
   ],
   "require": {
     "php": "^8.3",
-    "flarum/core": "^2.0"
+    "flarum/core": "^2.0",
+    "guzzlehttp/guzzle": "^7.7"
+  },
+  "suggest": {
+    "blomstra/turnstile": "Use Cloudflare Turnstile as the challenge instead of proof of work.",
+    "flectar/flarum-turnstile": "Use Cloudflare Turnstile as the challenge instead of proof of work.",
+    "fof/sitemap": "Bouncer adds its sitemap to robots.txt."
   },
   "autoload": {
     "psr-4": {
@@ -57,7 +63,9 @@
         "color": "#fbbf24"
       },
       "optional-dependencies": [
-        "flectar-turnstile"
+        "blomstra/turnstile",
+        "flectar/flarum-turnstile",
+        "fof/sitemap"
       ]
     },
     "flarum-cli": {

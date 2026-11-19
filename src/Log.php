@@ -84,4 +84,68 @@ class Log
     {
         return $this->db->table(self::TABLE)->where('last_seen', '<', Carbon::now()->subDays($days))->delete();
     }
+
+    /**
+     * Hits by action for each of the last seven days (UTC), oldest first.
+     * One grouped query: a sum per day, each day a CASE column (raw, as the
+     * builder has no conditional sum; portable to every database).
+     *
+     * @return list<array{date: string, counts: array<string, int>}>
+     */
+    public function week(): array
+    {
+        $starts = [];
+        $columns = [];
+        $bindings = [];
+
+        for ($i = 6; $i >= 0; $i--) {
+            $start = Carbon::now('UTC')->startOfDay()->subDays($i);
+            $starts[] = $start;
+            $columns[] = 'sum(case when last_seen >= ? and last_seen < ? then hits else 0 end) as d'.(6 - $i);
+            array_push($bindings, $start, $start->copy()->addDay());
+        }
+
+        $rows = $this->db->table(self::TABLE)
+            ->where('last_seen', '>=', $starts[0])
+            ->groupBy('action')
+            ->selectRaw('action, '.implode(', ', $columns), $bindings)
+            ->get();
+
+        $days = [];
+
+        foreach ($starts as $i => $start) {
+            $counts = [];
+
+            foreach ($rows as $row) {
+                if ((int) $row->{'d'.$i} > 0) {
+                    $counts[$row->action] = (int) $row->{'d'.$i};
+                }
+            }
+
+            $days[] = ['date' => $start->toDateString(), 'counts' => $counts];
+        }
+
+        return $days;
+    }
+
+    /**
+     * The 15 busiest named bots of the last seven days.
+     *
+     * @return list<array{bot: string, action: string, reason: string, hits: int}>
+     */
+    public function topBots(): array
+    {
+        return $this->db->table(self::TABLE)
+            ->whereNotNull('bot')
+            ->where('last_seen', '>=', Carbon::now('UTC')->subDays(7))
+            ->groupBy('bot', 'action', 'reason')
+            // Raw only for the sum, which the builder can't alias.
+            ->selectRaw('bot, action, reason, sum(hits) as hits')
+            ->orderByDesc('hits')
+            ->limit(15)
+            ->get()
+            ->map(fn ($row) => ['bot' => $row->bot, 'action' => $row->action, 'reason' => $row->reason, 'hits' => (int) $row->hits])
+            ->values()
+            ->all();
+    }
 }

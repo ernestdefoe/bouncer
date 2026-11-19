@@ -13,11 +13,13 @@ use ErnestDefoe\Bouncer\Tokens;
 use Flarum\Http\CookieFactory;
 use Flarum\Http\UrlGenerator;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Laminas\Diactoros\Response\RedirectResponse;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Checks a challenge's answer. The challenge is signed (so its difficulty,
@@ -47,6 +49,8 @@ class VerifyController implements RequestHandlerInterface
         protected UrlGenerator $url,
         protected Cache $cache,
         protected Log $log,
+        protected Client $http,
+        protected LoggerInterface $logger,
     ) {
         $this->turnstileCheck = $this->askTurnstile(...);
     }
@@ -124,14 +128,23 @@ class VerifyController implements RequestHandlerInterface
     protected function askTurnstile(string $secret, string $response, string $ip): bool
     {
         try {
-            $answer = (new Client(['timeout' => 8, 'connect_timeout' => 4]))->post(self::TURNSTILE_VERIFY, [
+            $answer = $this->http->post(self::TURNSTILE_VERIFY, [
+                'timeout' => 8,
+                'connect_timeout' => 4,
                 'form_params' => ['secret' => $secret, 'response' => $response, 'remoteip' => $ip],
             ]);
-            $json = json_decode((string) $answer->getBody(), true);
+        } catch (GuzzleException $e) {
+            // The visitor gets the challenge again; the log says why, once a
+            // minute at most, so an outage doesn't flood it.
+            if ($this->cache->add('ernestdefoe-bouncer.turnstile-error', 1, 60)) {
+                $this->logger->warning('Bouncer: Turnstile check failed: '.$e->getMessage());
+            }
 
-            return is_array($json) && ($json['success'] ?? false) === true;
-        } catch (\Throwable) {
             return false;
         }
+
+        $json = json_decode((string) $answer->getBody(), true);
+
+        return is_array($json) && ($json['success'] ?? false) === true;
     }
 }

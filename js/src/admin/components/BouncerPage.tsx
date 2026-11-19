@@ -6,9 +6,8 @@ import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import humanTime from 'flarum/common/helpers/humanTime';
 import extractText from 'flarum/common/utils/extractText';
 import type Mithril from 'mithril';
-
-const P = 'ernestdefoe-bouncer.';
-const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans(`ernestdefoe-bouncer.admin.${key}`, params);
+import { ACTIONS, P, t } from '../common';
+import LogTab from './LogTab';
 
 type Tab = 'overview' | 'crawlers' | 'rules' | 'lists' | 'log';
 
@@ -34,16 +33,9 @@ interface Status {
   apcu: boolean;
 }
 
-interface Row {
-  id: number;
-  ip: string;
-  userAgent: string;
-  action: string;
-  reason: string;
-  bot: string | null;
-  path: string;
-  hits: number;
-  lastSeen: string;
+interface Refresh {
+  state: 'idle' | 'running' | 'done' | 'failed';
+  error?: string;
 }
 
 interface Check {
@@ -51,8 +43,6 @@ interface Check {
   bouncer: boolean;
   error?: string;
 }
-
-const ACTIONS = ['allowed', 'challenged', 'solved', 'failed', 'blocked', 'limited', 'would_challenge', 'would_block', 'would_limit'];
 
 /**
  * Bouncer's admin page: an overview of the week, the crawler list, the
@@ -63,15 +53,10 @@ const ACTIONS = ['allowed', 'challenged', 'solved', 'failed', 'blocked', 'limite
 export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
   tab: Tab = 'overview';
   status: Status | null = null;
-  rows: Row[] = [];
-  total = 0;
-  filter = '';
-  query = '';
-  logLoading = false;
   refreshing = false;
+  pollTimer: number | undefined;
   checks: Record<string, Check> | null = null;
   checking = false;
-  searchTimer: number | undefined;
 
   oninit(vnode: Mithril.Vnode<ExtensionPageAttrs, this>) {
     super.oninit(vnode);
@@ -97,7 +82,7 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
               </button>
             ))}
           </nav>
-          {this.tab === 'log' ? this.logTab() : this.settingsTab()}
+          {this.tab === 'log' ? <LogTab /> : this.settingsTab()}
         </div>
       </div>
     );
@@ -106,7 +91,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
   open(tab: Tab) {
     this.tab = tab;
 
-    if (tab === 'log' && !this.rows.length) this.loadLog(true);
     if (tab === 'overview' || tab === 'crawlers') this.loadStatus();
   }
 
@@ -133,7 +117,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         label: t('overview.mode_label'),
         help: t('overview.mode_help'),
         options: { on: t('overview.mode_on'), monitor: t('overview.mode_monitor') },
-        default: 'on',
       }),
       !s ? (
         <LoadingIndicator />
@@ -143,70 +126,88 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
             <label>{t('overview.week_heading')}</label>
             {this.week(s)}
           </div>,
-          s.bots.length ? (
-            <div className="Form-group">
-              <label>{t('overview.bots_heading')}</label>
-              <table className="BouncerPage-table">
-                <tbody>
-                  {s.bots.map((b) => (
-                    <tr>
-                      <td>{b.bot}</td>
-                      <td>{t('overview.actions.' + b.action)}</td>
-                      <td className="helpText">{t('log.reasons.' + b.reason)}</td>
-                      <td className="BouncerPage-num">{b.hits.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null,
-          <div className="Form-group">
-            <label>{t('overview.you_heading')}</label>
-            <p className={'helpText' + (s.you.public ? '' : ' BouncerPage-warning')}>
-              {t(s.you.public ? 'overview.you_public' : 'overview.you_private', { ip: s.you.ip })}
-            </p>
-          </div>,
-          this.buildSettingComponent({
-            setting: P + 'ip_header',
-            type: 'select',
-            label: t('overview.ip_header_label'),
-            help: t('overview.ip_header_help'),
-            options: { none: t('overview.ip_header_none'), 'x-forwarded-for': 'X-Forwarded-For', 'x-real-ip': 'X-Real-IP' },
-            default: 'none',
-          }),
-          <p className="helpText Form-group">
-            {Object.keys(s.you.headers).length
-              ? [
-                  t('overview.headers_seen'),
-                  ...Object.entries(s.you.headers).map(([name, value]) => (
-                    <div>
-                      <code>
-                        {name}: {value}
-                      </code>
-                    </div>
-                  )),
-                ]
-              : t('overview.headers_none')}
-          </p>,
-          <div className="Form-group">
-            <label>{t('overview.networks_heading')}</label>
-            <p className="helpText">
-              {t('overview.networks_info', {
-                ranges: s.networks.ranges.toLocaleString(),
-                asns: s.networks.asns.length,
-                date: s.networks.updated ? humanTime(new Date(s.networks.updated * 1000)) : '—',
-                source: t('overview.networks_source_' + s.networks.source),
-              })}{' '}
-              {t('overview.networks_cron')}
-            </p>
-            <Button className="Button" icon="fas fa-sync" loading={this.refreshing} onclick={() => this.refreshNetworks()}>
-              {t('overview.refresh_button')}
-            </Button>
-            <p className="helpText">{t(s.apcu ? 'overview.apcu_on' : 'overview.apcu_off')}</p>
-          </div>,
+          this.topBots(s),
+          ...this.address(s),
+          this.networks(s),
         ]
       ),
     ];
+  }
+
+  topBots(s: Status) {
+    if (!s.bots.length) return null;
+
+    return (
+      <div className="Form-group">
+        <label>{t('overview.bots_heading')}</label>
+        <table className="BouncerPage-table">
+          <tbody>
+            {s.bots.map((b) => (
+              <tr>
+                <td>{b.bot}</td>
+                <td>{t('overview.actions.' + b.action)}</td>
+                <td className="helpText">{t('log.reasons.' + b.reason)}</td>
+                <td className="BouncerPage-num">{b.hits.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  /** The address Bouncer sees for the admin, the proxy header setting, and the headers this request carried. */
+  address(s: Status) {
+    return [
+      <div className="Form-group">
+        <label>{t('overview.you_heading')}</label>
+        <p className={'helpText' + (s.you.public ? '' : ' BouncerPage-warning')}>
+          {t(s.you.public ? 'overview.you_public' : 'overview.you_private', { ip: s.you.ip })}
+        </p>
+      </div>,
+      this.buildSettingComponent({
+        setting: P + 'ip_header',
+        type: 'select',
+        label: t('overview.ip_header_label'),
+        help: t('overview.ip_header_help'),
+        options: { none: t('overview.ip_header_none'), 'x-forwarded-for': 'X-Forwarded-For', 'x-real-ip': 'X-Real-IP' },
+      }),
+      <p className="helpText Form-group">
+        {Object.keys(s.you.headers).length
+          ? [
+              t('overview.headers_seen'),
+              ...Object.entries(s.you.headers).map(([name, value]) => (
+                <div>
+                  <code>
+                    {name}: {value}
+                  </code>
+                </div>
+              )),
+            ]
+          : t('overview.headers_none')}
+      </p>,
+    ];
+  }
+
+  networks(s: Status) {
+    return (
+      <div className="Form-group">
+        <label>{t('overview.networks_heading')}</label>
+        <p className="helpText">
+          {t('overview.networks_info', {
+            ranges: s.networks.ranges.toLocaleString(),
+            asns: s.networks.asns.length,
+            date: s.networks.updated ? humanTime(new Date(s.networks.updated * 1000)) : '—',
+            source: t('overview.networks_source_' + s.networks.source),
+          })}{' '}
+          {t('overview.networks_cron')}
+        </p>
+        <Button className="Button" icon="fas fa-sync" loading={this.refreshing} onclick={() => this.refreshNetworks()}>
+          {t('overview.refresh_button')}
+        </Button>
+        <p className="helpText">{t(s.apcu ? 'overview.apcu_on' : 'overview.apcu_off')}</p>
+      </div>
+    );
   }
 
   week(s: Status) {
@@ -348,7 +349,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
 
   rules() {
     const s = this.status;
-    const actions = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, t('rules.action_' + k)]));
     const challengeTypes: Record<string, Mithril.Children> = { pow: t('rules.challenge_pow') };
 
     if (s?.turnstileAvailable || this.setting(P + 'challenge')() === 'turnstile') challengeTypes.turnstile = t('rules.challenge_turnstile');
@@ -360,7 +360,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         type: 'select',
         label: t('rules.challenge_label'),
         options: challengeTypes,
-        default: 'pow',
       }),
       s && !s.turnstileReady ? <p className="helpText BouncerPage-warning">{t('rules.turnstile_missing')}</p> : null,
       this.buildSettingComponent({
@@ -373,6 +372,15 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
       }),
       this.buildSettingComponent({ setting: P + 'pass_days', type: 'number', min: 1, max: 90, label: t('rules.pass_days_label') }),
       this.buildSettingComponent({ setting: P + 'everyone', type: 'switch', label: t('rules.everyone_label'), help: t('rules.everyone_help') }),
+      ...this.signals(),
+    ];
+  }
+
+  /** The signals that earn a challenge, and the rate limits. */
+  signals() {
+    const actions = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, t('rules.action_' + k)]));
+
+    return [
       <h3>{t('rules.signals_heading')}</h3>,
       this.buildSettingComponent({
         setting: P + 'tools',
@@ -380,7 +388,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         label: t('rules.tools_label'),
         help: t('rules.tools_help'),
         options: actions(['challenge', 'block', 'off']),
-        default: 'challenge',
       }),
       this.buildSettingComponent({
         setting: P + 'headers',
@@ -388,7 +395,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         label: t('rules.headers_label'),
         help: t('rules.headers_help'),
         options: actions(['challenge', 'off']),
-        default: 'challenge',
       }),
       this.buildSettingComponent({
         setting: P + 'datacentre',
@@ -396,7 +402,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         label: t('rules.datacentre_label'),
         help: t('rules.datacentre_help'),
         options: actions(['challenge', 'off']),
-        default: 'challenge',
       }),
       this.buildSettingComponent({
         setting: P + 'fake_engines',
@@ -404,7 +409,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         label: t('rules.fake_engines_label'),
         help: t('rules.fake_engines_help'),
         options: actions(['block', 'challenge', 'off']),
-        default: 'block',
       }),
       <h3>{t('rules.burst_heading')}</h3>,
       <p className="helpText">{t('rules.burst_help')}</p>,
@@ -442,87 +446,6 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
     ];
   }
 
-  logTab() {
-    return (
-      <div className="BouncerPage-log">
-        <div className="BouncerPage-logBar">
-          <select
-            className="FormControl"
-            value={this.filter}
-            onchange={(e: Event) => {
-              this.filter = (e.target as HTMLSelectElement).value;
-              this.loadLog(true);
-            }}
-          >
-            <option value="">{t('log.filter_all')}</option>
-            {ACTIONS.map((a) => (
-              <option value={a}>{t('overview.actions.' + a)}</option>
-            ))}
-          </select>
-          <input
-            className="FormControl"
-            type="search"
-            placeholder={t('log.search_placeholder')}
-            value={this.query}
-            oninput={(e: Event) => {
-              this.query = (e.target as HTMLInputElement).value;
-              window.clearTimeout(this.searchTimer);
-              this.searchTimer = window.setTimeout(() => this.loadLog(true), 300);
-            }}
-          />
-          <Button className="Button Button--danger" icon="fas fa-trash" onclick={() => this.clearLog()}>
-            {t('log.clear_button')}
-          </Button>
-        </div>
-        {this.rows.length ? (
-          <div className="BouncerPage-scroll">
-            <table className="BouncerPage-table BouncerPage-logTable">
-              <thead>
-                <tr>
-                  {['when', 'action', 'reason', 'address', 'agent', 'path', 'hits'].map((c) => (
-                    <th>{t('log.columns.' + c)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {this.rows.map((r) => (
-                  <tr>
-                    <td className="BouncerPage-when">{humanTime(new Date(r.lastSeen))}</td>
-                    <td>
-                      <span className={'BouncerPage-action BouncerPage-action--' + r.action}>{t('overview.actions.' + r.action)}</span>
-                    </td>
-                    <td>
-                      {t('log.reasons.' + r.reason)}
-                      {r.bot ? <div className="helpText">{r.bot}</div> : null}
-                    </td>
-                    <td>
-                      <code>{r.ip}</code>
-                    </td>
-                    <td className="BouncerPage-agent" title={r.userAgent}>
-                      {r.userAgent}
-                    </td>
-                    <td className="BouncerPage-path" title={r.path}>
-                      {r.path}
-                    </td>
-                    <td className="BouncerPage-num">{r.hits.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : this.logLoading ? null : (
-          <p className="helpText">{t('log.empty')}</p>
-        )}
-        {this.logLoading ? <LoadingIndicator /> : null}
-        {!this.logLoading && this.rows.length < this.total ? (
-          <Button className="Button" onclick={() => this.loadLog(false)}>
-            {t('log.more')}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
-
   loadStatus() {
     app
       .request<Status>({ method: 'GET', url: app.forum.attribute('apiUrl') + '/bouncer/status' })
@@ -530,55 +453,51 @@ export default class BouncerPage extends ExtensionPage<ExtensionPageAttrs> {
         this.status = status;
         m.redraw();
       })
-      .catch(() => {});
-  }
-
-  loadLog(reset: boolean) {
-    this.logLoading = true;
-    if (reset) this.rows = [];
-
-    app
-      .request<{ rows: Row[]; total: number }>({
-        method: 'GET',
-        url: app.forum.attribute('apiUrl') + '/bouncer/log',
-        params: { action: this.filter, q: this.query, offset: this.rows.length },
-      })
-      .then((result) => {
-        this.rows = this.rows.concat(result.rows);
-        this.total = result.total;
-      })
-      .finally(() => {
-        this.logLoading = false;
-        m.redraw();
+      .catch(() => {
+        /* app.request already showed the alert */
       });
-  }
-
-  clearLog() {
-    if (!confirm(extractText(t('log.clear_confirm')))) return;
-
-    app.request({ method: 'DELETE', url: app.forum.attribute('apiUrl') + '/bouncer/log' }).then(() => {
-      this.rows = [];
-      this.total = 0;
-      m.redraw();
-    });
   }
 
   refreshNetworks() {
     this.refreshing = true;
 
     app
-      .request<{ error?: string }>({ method: 'POST', url: app.forum.attribute('apiUrl') + '/bouncer/networks', errorHandler: () => {} })
-      .then(() => {
-        app.alerts.show({ type: 'success' }, t('overview.refresh_done'));
-        this.loadStatus();
-      })
-      .catch((e: any) => {
-        app.alerts.show({ type: 'error' }, t('overview.refresh_failed', { error: e?.response?.error || e?.status || '?' }));
-      })
-      .finally(() => {
-        this.refreshing = false;
-        m.redraw();
-      });
+      .request<Refresh>({ method: 'POST', url: app.forum.attribute('apiUrl') + '/bouncer/networks', errorHandler: () => {} })
+      .then((state) => this.refreshed(state, Date.now() + 240_000))
+      .catch((e: any) => this.refreshed({ state: 'failed', error: e?.response?.error || e?.status || '?' }, 0));
+  }
+
+  /**
+   * The refresh runs on the queue, or from the scheduler within a minute:
+   * ask how it went every few seconds until it ends. "idle" after "running"
+   * means its state expired unreported, which reads as too slow.
+   */
+  refreshed(state: Refresh, until: number) {
+    if (state.state === 'running' && Date.now() < until) {
+      this.pollTimer = window.setTimeout(() => {
+        app
+          .request<Refresh>({ method: 'GET', url: app.forum.attribute('apiUrl') + '/bouncer/networks', errorHandler: () => {} })
+          .then((next) => this.refreshed(next.state === 'idle' ? { state: 'running' } : next, until))
+          .catch((e: any) => this.refreshed({ state: 'failed', error: e?.status || '?' }, 0));
+      }, 3000);
+      return;
+    }
+
+    if (state.state === 'done') {
+      app.alerts.show({ type: 'success' }, t('overview.refresh_done'));
+      this.loadStatus();
+    } else {
+      const error = state.state === 'failed' ? state.error || '?' : extractText(t('overview.refresh_slow'));
+      app.alerts.show({ type: 'error' }, t('overview.refresh_failed', { error }));
+    }
+
+    this.refreshing = false;
+    m.redraw();
+  }
+
+  onremove(vnode: Mithril.VnodeDOM<ExtensionPageAttrs, this>) {
+    super.onremove(vnode);
+    window.clearTimeout(this.pollTimer);
   }
 
   checkRobots() {
